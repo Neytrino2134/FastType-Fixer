@@ -21,6 +21,10 @@
     <a href="#-установка">Установка</a> •
     <a href="#-стек">Стек</a>
   </p>
+
+  <p align="center">
+    <a href="./README_EN.md">🇺🇸 <b>English Version</b></a>
+  </p>
 </div>
 
 ---

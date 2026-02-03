@@ -119,8 +119,8 @@ export const streamChatMessage = async function* (
         });
         
         // Send Message
-        // sendMessageStream accepts a string OR a Content structure with parts
-        const resultStream = await chat.sendMessageStream({ parts: currentMessageParts });
+        // FIX: Pass currentMessageParts array directly to message property
+        const resultStream = await chat.sendMessageStream({ message: currentMessageParts });
         
         for await (const chunk of resultStream) {
             if (chunk.text) {

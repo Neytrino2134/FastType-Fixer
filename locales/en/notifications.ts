@@ -1,0 +1,23 @@
+
+export const notifications = {
+  notif_playlist_locked: "PLAYLIST LOCKED",
+  notif_playlist_unlocked: "PLAYLIST UNLOCKED",
+  notif_tutorial_complete: "TUTORIAL COMPLETE",
+  notif_rec_started: "RECORDING STARTED",
+  notif_rec_stopped: "RECORDING STOPPED",
+  notif_rec_saved: "RECORDING SAVED",
+  notif_rec_error: "RECORDING ERROR",
+  notif_preset_loaded: "PRESET LOADED",
+  notif_preset_saved: "PRESET SAVED",
+  notif_tracks_added: "TRACKS ADDED",
+  notif_bg_added: "BACKGROUND ADDED",
+  notif_sfx_loaded: "SFX PACK LOADED",
+  notif_system_init: "SYSTEM INITIALIZED",
+  notif_user_verify: "VERIFYING USER...",
+  notif_welcome_user: "WELCOME BACK, USER",
+  notif_access_granted: "ACCESS GRANTED",
+  notif_cinema_mode: "CINEMA MODE ACTIVE",
+  notif_ui_restored: "UI RESTORED",
+  notif_editor_closed: "EDITOR CLOSED",
+  notif_studio_init: "MUSIC STUDIO INITIALIZED",
+};

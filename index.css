@@ -1,0 +1,413 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Variables for Theming */
+:root {
+  --color-primary: #00f3ff;
+  --color-secondary: #bc13fe;
+  --color-accent: #00ff00;
+  --color-bg: #030712;
+  --color-panel: #111827;
+  --color-text: #ffffff;
+  --color-muted: #9ca3af;
+  --color-border: #374151;
+  --color-scroll-thumb: #374151; /* Default fallback */
+  --color-toggle-knob: #ffffff; /* Default fallback */
+  --color-toggle-bg: #bc13fe; /* Default fallback (Retro Purple) */
+}
+
+/* Custom Selection Color */
+::selection {
+  background-color: var(--color-primary);
+  color: #000000;
+}
+
+/* ELECTRON DRAG REGIONS */
+.app-drag-region {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* FORCE SYSTEM CURSOR */
+.system-cursor {
+  cursor: default !important;
+}
+
+/* 
+   SCROLLBAR INTERACTION STATE
+   Overrides the global cursor: none when interacting with scrollbars
+   OR when style is set to system
+*/
+body.show-system-cursor,
+body.show-system-cursor *,
+body.force-system-cursor,
+body.force-system-cursor * {
+  cursor: auto !important;
+}
+
+/* 
+   === GLOBAL FONT SCALING === 
+*/
+html {
+  font-size: 17px; 
+  touch-action: manipulation; /* Improves click delay */
+}
+
+.text-\[8px\] {
+  font-size: 10px !important;
+}
+.text-\[9px\] {
+  font-size: 11px !important;
+}
+.text-\[10px\] {
+  font-size: 12px !important;
+}
+.text-\[11px\] {
+  font-size: 13px !important;
+}
+
+/* Disable text selection globally for a better app-like experience */
+*, *::before, *::after {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+input[type="text"], 
+input[type="password"], 
+input[type="email"], 
+input[type="number"], 
+input[type="search"], 
+textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+}
+
+/* Remove default focus outline to prevent white border on hotkey press */
+button:focus,
+input:focus,
+select:focus,
+textarea:focus,
+[role="button"]:focus {
+  outline: none;
+}
+
+body {
+  background-color: var(--color-bg); 
+  color: var(--color-text);
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Reserve space for scrollbar to prevent jumping */
+.custom-scrollbar {
+  scrollbar-gutter: stable;
+}
+
+/* NO SCROLLBAR UTILITY (For Touch-like panels) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* CRT Scanline Effect */
+.scanlines {
+  background: linear-gradient(
+    to bottom,
+    rgba(255,255,255,0),
+    rgba(255,255,255,0) 50%,
+    rgba(0,0,0,0.2) 50%,
+    rgba(0,0,0,0.2)
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+}
+.flicker {
+  animation: flicker 0.15s infinite;
+}
+@keyframes flicker {
+  0% { opacity: 0.97; }
+  100% { opacity: 1; }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  display: block; /* Ensure it is visible, especially in Electron Mini Mode */
+}
+::-webkit-scrollbar-track {
+  background: #111; 
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-scroll-thumb); 
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary); 
+}
+
+/* Range Slider Styling - Rectangular Retro Look */
+input[type=range] {
+  -webkit-appearance: none; 
+  appearance: none;
+  background: transparent; 
+  width: 100%;
+  margin: 0;
+  vertical-align: middle;
+}
+
+/* Only force cursor: none if NOT in system cursor mode */
+body:not(.force-system-cursor) input[type=range],
+body:not(.force-system-cursor) input[type=range]::-webkit-slider-thumb,
+body:not(.force-system-cursor) input[type=range]::-webkit-slider-runnable-track {
+  cursor: none !important;
+}
+
+/* Chrome/Safari Track */
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 14px;
+  cursor: pointer;
+  background: var(--color-panel); /* Dark background */
+  border: 1px solid var(--color-border);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+}
+
+/* Chrome/Safari Thumb */
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 20px;
+  width: 12px;
+  border: 1px solid var(--color-muted); /* Restrained border color */
+  background: var(--color-primary); /* UPDATED: Primary color (Blue in default) */
+  cursor: pointer;
+  margin-top: -4px; /* Centers thumb on track (14px track - 20px thumb) / 2 = -3px */
+  box-shadow: 0 0 8px var(--color-primary), inset 0 0 2px rgba(255,255,255,0.5);
+  transition: transform 0.1s;
+}
+
+input[type=range]::-webkit-slider-thumb:hover {
+  background: var(--color-primary);
+  transform: scale(1.1);
+}
+
+/* Firefox Track */
+input[type=range]::-moz-range-track {
+  width: 100%;
+  height: 14px;
+  cursor: pointer;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.8);
+}
+
+/* Firefox Thumb */
+input[type=range]::-moz-range-thumb {
+  height: 20px;
+  width: 12px;
+  border: 1px solid var(--color-muted); /* Restrained border color */
+  background: var(--color-primary); /* UPDATED: Primary color */
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--color-primary);
+}
+
+input[type=range]:focus {
+  outline: none;
+}
+
+/* --- CONTROL STYLES (Dynamic via data-attribute) --- */
+
+[data-control-style="default"] input[type=range]::-webkit-slider-runnable-track { border-radius: 0; }
+[data-control-style="default"] input[type=range]::-webkit-slider-thumb { border-radius: 0; }
+[data-control-style="default"] input[type=range]::-moz-range-track { border-radius: 0; }
+[data-control-style="default"] input[type=range]::-moz-range-thumb { border-radius: 0; }
+
+[data-control-style="round"] input[type=range]::-webkit-slider-runnable-track { border-radius: 6px; }
+[data-control-style="round"] input[type=range]::-webkit-slider-thumb { border-radius: 3px; }
+[data-control-style="round"] input[type=range]::-moz-range-track { border-radius: 6px; }
+[data-control-style="round"] input[type=range]::-moz-range-thumb { border-radius: 3px; }
+
+[data-control-style="circle"] input[type=range]::-webkit-slider-runnable-track { border-radius: 999px; }
+[data-control-style="circle"] input[type=range]::-webkit-slider-thumb { border-radius: 50%; width: 20px; }
+[data-control-style="circle"] input[type=range]::-moz-range-track { border-radius: 999px; }
+[data-control-style="circle"] input[type=range]::-moz-range-thumb { border-radius: 50%; width: 20px; }
+
+
+@keyframes text-flash {
+  0%, 92% { color: #9ca3af; text-shadow: none; opacity: 0.85; }
+  93% { color: #d4d4d4; text-shadow: 0 0 8px #d4d4d4; opacity: 1; }
+  94% { color: #9ca3af; text-shadow: none; opacity: 0.85; }
+  96% { color: #d4d4d4; text-shadow: 0 0 8px #d4d4d4; opacity: 1; }
+  100% { color: #9ca3af; text-shadow: none; opacity: 0.85; }
+}
+
+.animate-text-flash {
+  animation: text-flash 10s infinite;
+}
+
+/* Custom Cursor Support */
+body, button, a, input, select, textarea, [role="button"], .cursor-pointer {
+  cursor: none !important;
+}
+
+@media (hover: none) and (pointer: coarse) {
+}
+
+/* --- ANIMATIONS FOR REBOOT SEQUENCE --- */
+
+@keyframes slide-up {
+  0% { transform: translateY(100%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fade-in-text {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in-text {
+  animation: fade-in-text 1s ease-out forwards;
+}
+
+@keyframes typewriter {
+  from { width: 0; }
+  to { width: 100%; }
+}
+
+.animate-typewriter {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: typewriter 2s steps(40, end) forwards;
+}
+
+@keyframes tv-off-scale {
+  0% { transform: scale(1, 1); }
+  40% { transform: scale(1, 0.002); }
+  80% { transform: scale(0, 0.002); }
+  100% { transform: scale(0, 0); }
+}
+
+@keyframes tv-off-flash {
+  0% { background-color: transparent; }
+  40% { background-color: white; opacity: 1; }
+  80% { background-color: white; opacity: 0.5; }
+  100% { background-color: black; opacity: 1; }
+}
+
+.tv-off-container {
+  animation: tv-off-scale 0.5s ease-in forwards;
+  background: black;
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  transform-origin: center;
+}
+
+.tv-off-flash-overlay {
+  animation: tv-off-flash 0.6s ease-out forwards;
+  position: absolute;
+  inset: 0;
+  z-index: 101;
+  pointer-events: none;
+}
+
+@keyframes slide-out-up {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+
+.animate-slide-out-up {
+  animation: slide-out-up 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+#root {
+  min-width: 0;
+}
+
+@media (min-width: 800px) {
+    #root {
+        min-width: 800px;
+    }
+}
+
+/* --- PLAYER CHASSIS STYLING --- 
+   Replaces the old JS-driven logic.
+   STATIC GLOW (No pulsing) with smooth transition.
+*/
+
+.player-chassis {
+  border: 1px solid;
+  /* Base State: Dim Border, Default Shadow */
+  border-color: color-mix(in srgb, var(--color-primary), transparent 80%);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  
+  /* Smooth transition for when hover ENDS */
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  will-change: border-color, box-shadow;
+}
+
+.player-chassis:hover {
+  /* Hover State: Bright Border (Static), Static Strong Glow */
+  border-color: var(--color-primary);
+  /* Static strong glow, NO animation */
+  box-shadow: 0 0 20px color-mix(in srgb, var(--color-primary), transparent 50%);
+}
+
+/* --- BACKGROUND ANIMATIONS --- */
+
+@keyframes bg-zoom {
+  0%, 100% { transform: scale(1.05); }
+  50% { transform: scale(1.25); }
+}
+
+@keyframes bg-sway {
+  0%, 100% { transform: translateX(-3%) scale(1.1); }
+  50% { transform: translateX(3%) scale(1.1); }
+}
+
+@keyframes bg-handheld {
+  0% { transform: translate(0, 0) scale(1.1); }
+  25% { transform: translate(1%, 1%) scale(1.11) rotate(0.5deg); }
+  50% { transform: translate(-1%, 0) scale(1.1) rotate(-0.5deg); }
+  75% { transform: translate(0, -1%) scale(1.11) rotate(0.2deg); }
+  100% { transform: translate(0, 0) scale(1.1); }
+}
+
+@keyframes bg-cinematic {
+  0% { transform: scale(1.1) translate(0, 0); }
+  33% { transform: scale(1.2) translate(-2%, 1%); }
+  66% { transform: scale(1.15) translate(2%, -1%); }
+  100% { transform: scale(1.1) translate(0, 0); }
+}
+
+@keyframes bg-chaos {
+  0% { transform: scale(1.1) translate(0, 0); }
+  40% { transform: scale(1.2) translate(-2%, 1%); }
+  41% { transform: scale(1.3) translate(2%, -3%) rotate(2deg); }
+  45% { transform: scale(1.3) translate(2%, -3%) rotate(2deg); }
+  60% { transform: scale(1.15) translate(2%, -1%); }
+  85% { transform: scale(1.15) translate(-1%, 2%); }
+  86% { transform: scale(1.25) translate(3%, 3%) rotate(-2deg); }
+  90% { transform: scale(1.25) translate(3%, 3%) rotate(-2deg); }
+  100% { transform: scale(1.1) translate(0, 0); }
+}
+
+.bg-anim-zoom { animation: bg-zoom 20s ease-in-out infinite; will-change: transform; }
+.bg-anim-sway { animation: bg-sway 15s ease-in-out infinite; will-change: transform; }
+.bg-anim-handheld { animation: bg-handheld 8s ease-in-out infinite; will-change: transform; }
+.bg-anim-cinematic { animation: bg-cinematic 25s ease-in-out infinite; will-change: transform; }
+.bg-anim-chaos { animation: bg-chaos 18s ease-in-out infinite; will-change: transform; }

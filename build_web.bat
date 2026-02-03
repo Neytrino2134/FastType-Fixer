@@ -1,37 +1,23 @@
 @echo off
-title Neon Player - Build Web
-color 0b
-
-echo ==================================================
-echo      NEON RETRO PLAYER - WEB BUILD
-echo ==================================================
-echo.
-echo This command compiles the project into static files
-echo located in the 'dist' folder.
-echo.
-echo Running 'npm run build'...
-echo.
-
-call npm run build
-
+echo ==========================================
+echo Installing Dependencies...
+echo ==========================================
+call npm install
 if %errorlevel% neq 0 (
-    color 0c
-    echo.
-    echo ==================================================
-    echo      BUILD FAILED
-    echo ==================================================
-    echo.
-    echo AI Prompt: "I tried to build the project using 'npm run build' but encountered errors. Please examine the output above and provide a solution to fix the build failure."
-    echo.
-    pause >nul
-    exit
+    echo Error installing dependencies!
+    pause
+    exit /b %errorlevel%
 )
 
-color 0a
+echo ==========================================
+echo Building Web Application...
+echo ==========================================
+call npm run build
+if %errorlevel% neq 0 (
+    echo Build failed!
+    pause
+    exit /b %errorlevel%
+)
 echo.
-echo ==================================================
-echo      BUILD SUCCESSFUL!
-echo ==================================================
-echo Files are ready in the 'dist' folder.
-echo.
+echo Web build complete! Files are in the 'dist' folder.
 pause

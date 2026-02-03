@@ -1,0 +1,13 @@
+FastType AI Fixer Project Root
+------------------------------
+This file marks the root directory for the FastType AI Fixer application.
+
+Project Description:
+An intelligent typing assistant for fast typists. It uses Gemini 3 Flash to correct typos, transposed letters, and spacing errors in real-time.
+
+Tech Stack:
+- React 19
+- Vite
+- Electron
+- Tailwind CSS
+- Google GenAI SDK

@@ -1,17 +1,9 @@
-
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
-
-export type NotificationType = 'success' | 'error' | 'info' | 'warning';
-
-export interface Notification {
-  id: string;
-  message: string;
-  type: NotificationType;
-}
+import { Notification, NotificationType } from '../types';
 
 interface NotificationContextType {
   notifications: Notification[];
-  addNotification: (message: string, type?: NotificationType) => void;
+  addNotification: (message: string, type: NotificationType, duration?: number) => void;
   removeNotification: (id: string) => void;
 }
 
@@ -24,13 +16,18 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
 
-  const addNotification = useCallback((message: string, type: NotificationType = 'info') => {
-    const id = crypto.randomUUID();
-    setNotifications((prev) => [...prev, { id, message, type }]);
+  const addNotification = useCallback((message: string, type: NotificationType, duration = 2000) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    const newNotification = { id, message, type, duration };
+    
+    setNotifications((prev) => [...prev, newNotification]);
 
-    // Auto dismiss logic has been moved to the NotificationOverlay component 
-    // to support exit animations.
-  }, []);
+    if (duration > 0) {
+      setTimeout(() => {
+        removeNotification(id);
+      }, duration);
+    }
+  }, [removeNotification]);
 
   return (
     <NotificationContext.Provider value={{ notifications, addNotification, removeNotification }}>
@@ -41,7 +38,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
 export const useNotification = () => {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error('useNotification must be used within a NotificationProvider');
   }
   return context;

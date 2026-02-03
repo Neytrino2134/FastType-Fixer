@@ -2,13 +2,21 @@
 node_modules/
 jspm_packages/
 
-# --- Сборка и временные файлы ---
+# --- Сборка Web (Vite) ---
 dist/
 dist-ssr/
+
+# --- Сборка Electron (Самые тяжелые файлы тут - ВАЖНО) ---
 dist-electron/
-build/
 out/
-public/
+build/
+release/
+*.exe
+*.dmg
+*.snap
+*.AppImage
+
+# --- Временные файлы и кэш ---
 .cache/
 .parcel-cache/
 .eslintcache/
@@ -30,7 +38,7 @@ lerna-debug.log*
 .env.production.local
 *.local
 
-# --- Настройки редакторов (VS Code, WebStorm и др.) ---
+# --- Настройки редакторов ---
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -40,5 +48,21 @@ lerna-debug.log*
 *.sln
 *.sw?
 
-# --- Системные файлы ---
+# --- Системные файлы OS ---
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Ключи Android ---
+upload-keystore.jks
+*.jks
+*.keystore
+android/app/*.jks
+android/key.properties
+android/local.properties
+android/app/build/
+android/.gradle/
+
+# --- Assets ---
+# Раскомментируйте, если в assets лежат тяжелые файлы
+# assets/

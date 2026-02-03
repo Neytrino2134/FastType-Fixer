@@ -1,68 +1,63 @@
 {
-  "name": "neon-dvd-player",
+  "name": "fasttype-ai",
   "private": true,
-  "version": "0.1.9",
-  "main": "electron/main.js",
-  "author": "MeowMasterArt",
-  "description": "A retro-styled audio player featuring a bouncing DVD screensaver, audio visualization, and neon aesthetics.",
-  "homepage": "https://Neytrino2134.github.io/Neon-DVD-Retro-Player",
+  "version": "0.1.2",
+  "main": "main.js",
   "type": "module",
+  "homepage": ".",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
-    "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
+    "convert-dict": "node scripts/convert_dictionaries.js",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
-    "jszip": "^3.10.1",
-    "lucide-react": "^0.400.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "@google/genai": "*",
-    "three": "^0.160.0",
-    "@react-three/fiber": "^8.15.12",
-    "@react-three/drei": "^9.96.1"
+    "@google/genai": "^0.2.0",
+    "lucide-react": "^0.344.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-markdown": "^9.0.1"
   },
   "devDependencies": {
-    "@types/jszip": "^3.4.1",
-    "@types/react": "^18.3.3",
-    "@types/react-dom": "^18.3.0",
-    "@types/three": "^0.160.0",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.19",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
-    "electron": "^30.0.0",
+    "electron": "^29.1.0",
     "electron-builder": "^24.13.3",
-    "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.4",
+    "gh-pages": "^6.1.1",
     "typescript": "^5.2.2",
-    "vite": "^5.3.1",
-    "wait-on": "^7.2.0",
-    "gh-pages": "^6.1.1"
+    "vite": "^5.1.5",
+    "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.neonretro.player",
-    "productName": "Neon Retro Player",
-    "directories": {
-      "output": "dist-electron"
-    },
+    "appId": "com.fasttype.ai",
+    "productName": "FastType AI Fixer",
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "main.js",
+      "preload.js"
     ],
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "assets"
+    },
     "win": {
-      "target": "nsis",
-      "icon": "public/NEON RETRO Player.ico"
+      "icon": "assets/icon.ico",
+      "target": "nsis"
     },
     "mac": {
+      "icon": "assets/icon.icns",
       "target": "dmg"
     },
     "linux": {
-      "target": "AppImage"
+      "icon": "assets/icon.png",
+      "target": "AppImage",
+      "category": "Utility"
     }
   }
 }

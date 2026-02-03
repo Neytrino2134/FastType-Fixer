@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
 import { useSmartEditor } from '../hooks/useSmartEditor';
@@ -26,7 +25,8 @@ export const SmartEditor: React.FC<SmartEditorProps> = (props) => {
     text,
     committedLength,
     processedLength,
-    checkedLength, // NEW: Destructure checkedLength
+    checkedLength,
+    finalizedSentences,
     textareaRef,
     backdropRef,
     isBusy,
@@ -55,7 +55,8 @@ export const SmartEditor: React.FC<SmartEditorProps> = (props) => {
         text={text}
         committedLength={committedLength}
         processedLength={processedLength}
-        checkedLength={checkedLength} // NEW: Pass to Surface
+        checkedLength={checkedLength}
+        finalizedSentences={finalizedSentences} // New
         status={props.status}
         visualizerStatus={visualizerStatus}
         language={props.language}

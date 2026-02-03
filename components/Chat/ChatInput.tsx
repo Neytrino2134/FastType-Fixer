@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useCallback } from 'react';
 import { Send, Mic, Square, Paperclip, X, Image as ImageIcon, FileText } from 'lucide-react';
 import { Attachment } from '../../types';
@@ -130,7 +129,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   return (
-    <div className="p-4 bg-slate-900 border-t border-slate-800 shrink-0 relative">
+    <div className="p-3 md:p-4 bg-slate-900 border-t border-slate-800 shrink-0 relative safe-area-bottom">
       
       {/* Drag Overlay */}
       {isDragging && (
@@ -172,7 +171,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 </div>
                 <button 
                     onClick={removeAttachment}
-                    className="p-1 hover:bg-slate-800 rounded-full text-slate-500 hover:text-red-400 transition-colors"
+                    className="p-2 hover:bg-slate-800 rounded-full text-slate-500 hover:text-red-400 transition-colors touch-manipulation"
                 >
                     <X className="w-4 h-4" />
                 </button>
@@ -184,7 +183,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isRecording}
-                className="shrink-0 p-2 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-slate-900 transition-colors"
+                className="shrink-0 p-2.5 md:p-2 rounded-lg text-slate-500 hover:text-indigo-400 hover:bg-slate-900 transition-colors touch-manipulation"
                 title="Attach image or text file"
             >
                 <Paperclip className="w-5 h-5" />
@@ -200,13 +199,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 placeholder={placeholder}
                 rows={1}
                 disabled={isRecording}
-                className="w-full bg-transparent border-none focus:ring-0 resize-none text-slate-200 placeholder:text-slate-600 max-h-[120px] py-2 px-0 custom-scrollbar disabled:opacity-50"
+                className="w-full bg-transparent border-none focus:ring-0 resize-none text-slate-200 placeholder:text-slate-600 max-h-[120px] py-2.5 px-0 custom-scrollbar disabled:opacity-50 text-base md:text-sm"
             />
 
             {/* Mic Button */}
             <button
                 onClick={onRecordToggle}
-                className={`shrink-0 p-2 rounded-lg transition-all ${
+                className={`shrink-0 p-2.5 md:p-2 rounded-lg transition-all touch-manipulation ${
                     isRecording 
                         ? 'bg-red-500/20 text-red-400 animate-pulse' 
                         : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-900'
@@ -219,7 +218,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
                 onClick={handleSubmit}
                 disabled={(!text.trim() && !attachment) || isLoading}
-                className={`shrink-0 p-2 rounded-lg transition-all ${
+                className={`shrink-0 p-2.5 md:p-2 rounded-lg transition-all touch-manipulation ${
                     (text.trim() || attachment) && !isLoading
                         ? 'bg-indigo-600 text-white shadow-lg' 
                         : 'bg-slate-900 text-slate-600 cursor-not-allowed'

@@ -4,7 +4,7 @@ import { Language } from '../types';
 
 export const PROMPTS = {
   ru: {
-    // STAGE 1: Grey -> Orange (Fast typo fix only)
+    // STAGE 1: Grey -> Blue (Fast typo fix only)
     fixTypos: `
 Твоя задача — жестко и точно исправлять орфографические ошибки (опечатки).
 Входной текст может быть обрывком фразы.
@@ -18,7 +18,7 @@ export const PROMPTS = {
 7. Если текст выглядит как бессмыслица, верни его как есть.
 8. Если текст написан русскими буквами, но это явно английские слова (транслит), напиши их по-английски (пример: "велком ту хелл" -> "welcome to hell").
 `,
-    // STAGE 2: Orange -> Green (Finalization: Punctuation & Capitalization)
+    // STAGE 2: Blue -> Green (Finalization: Punctuation & Capitalization)
     finalize: `
 Твоя задача — оформить текст как грамотную письменную речь.
 Входной текст уже проверен на опечатки.
@@ -57,7 +57,7 @@ export const PROMPTS = {
 `
   },
   en: {
-    // STAGE 1: Grey -> Orange (Fast typo fix only)
+    // STAGE 1: Grey -> Blue (Fast typo fix only)
     fixTypos: `
 Your task is to fix spelling typos in the text.
 STRICT RULES:
@@ -67,7 +67,7 @@ STRICT RULES:
 4. Fix obvious typos. Do not change correct words.
 5. DO NOT change letter case or add punctuation yet.
 `,
-    // STAGE 2: Orange -> Green (Finalization: Punctuation & Capitalization)
+    // STAGE 2: Blue -> Green (Finalization: Punctuation & Capitalization)
     finalize: `
 Your task is to format the text into proper written speech.
 STRICT RULES:
@@ -115,7 +115,7 @@ export const UI = {
     setupTitle: "Настройка доступа",
     setupDesc: "Введите ваш API ключ Google Gemini для начала работы.",
     apiKeyLabel: "GEMINI API KEY",
-    startBtn: "Запустить редактор",
+    startBtn: "Поехали", // Changed
     getKeyLink: "Получить бесплатный ключ Gemini",
     keyStorageInfo: "Ключ сохраняется локально на вашем устройстве.",
     placeholder: "Начните печатать здесь или используйте микрофон...",
@@ -137,12 +137,19 @@ export const UI = {
     statusPaused: "На паузе",
     btnPause: "Приостановить",
     btnResume: "Продолжить",
+    // Group Headers
+    groupActive: "Активное исправление",
+    groupSilence: "Порог тишины",
+    groupModel: "Модель обработки",
+    
     settingsTitle: "Параметры Анализа",
-    settingsActive: "Активное исправление",
+    settingsActive: "Активный режим",
     settingsDelay: "Задержка (ms)",
     settingsDelayDesc: "Скорость реакции ИИ на опечатки",
+    settingsFinalization: "Финализация простоя (сек)",
+    
     howItWorksTitle: "КАК ЭТО РАБОТАЕТ",
-    howItWorksDesc: "1. Словарь проверяет слова на лету (Оранжевый).\n2. ИИ исправляет ошибки в неизвестных словах.\n3. ИИ расставляет знаки препинания в конце предложения (Зеленый).",
+    howItWorksDesc: "1. Словарь проверяет слова на лету (Голубой).\n2. ИИ исправляет ошибки в неизвестных словах.\n3. ИИ расставляет знаки препинания в конце предложения (Зеленый).",
     changeKey: "Сменить API Ключ",
     footer: "FastType AI",
     clipboardTitle: "Буфер обмена (Alt+V)",
@@ -210,13 +217,16 @@ export const UI = {
     lockDesc: "Приложение заблокировано. Введите PIN-код.",
     lockPlaceholder: "Введите PIN",
     lockBtn: "Разблокировать",
-    lockCreateTitle: "Защита (Опционально)",
-    lockCreateDesc: "Создайте PIN для защиты входа.",
+    lockCreateTitle: "Защита приложения",
+    lockCreateDesc: "Установите PIN для защиты от посторонних.",
     lockCreatePlaceholder: "Придумайте PIN",
-    lockSetBtn: "Установить PIN",
+    lockSetBtn: "Сохранить PIN",
     lockError: "Неверный PIN-код",
     lockRemove: "Удалить PIN-код",
-    lockSaved: "PIN-код установлен"
+    lockSaved: "PIN-код установлен",
+    // New Buttons for PIN menu
+    btnCreatePin: "Создать PIN-код",
+    btnBack: "Назад"
   },
   en: {
     welcomeTitle: "Your Intelligent",
@@ -231,7 +241,7 @@ export const UI = {
     setupTitle: "Access Setup",
     setupDesc: "Enter your Google Gemini API key to get started.",
     apiKeyLabel: "GEMINI API KEY",
-    startBtn: "Launch Editor",
+    startBtn: "Let's Go", // Changed
     getKeyLink: "Get free Gemini API Key",
     keyStorageInfo: "Key is stored locally on your device.",
     placeholder: "Start typing here or use the microphone...",
@@ -253,12 +263,19 @@ export const UI = {
     statusPaused: "Paused",
     btnPause: "Pause",
     btnResume: "Resume",
+    // Group Headers
+    groupActive: "Active Correction",
+    groupSilence: "Silence Threshold",
+    groupModel: "Processing Model",
+
     settingsTitle: "Analysis Settings",
-    settingsActive: "Active Correction",
+    settingsActive: "Active Mode",
     settingsDelay: "Delay (ms)",
     settingsDelayDesc: "AI reaction speed for typos",
+    settingsFinalization: "Idle Finalization (sec)",
+
     howItWorksTitle: "HOW IT WORKS",
-    howItWorksDesc: "1. Dictionary checks words instantly (Orange).\n2. AI fixes unknown words.\n3. AI adds punctuation at sentence end (Green).",
+    howItWorksDesc: "1. Dictionary checks words instantly (Blue).\n2. AI fixes unknown words.\n3. AI adds punctuation at sentence end (Green).",
     changeKey: "Change API Key",
     footer: "FastType AI",
     clipboardTitle: "Clipboard History (Alt+V)",
@@ -326,13 +343,16 @@ export const UI = {
     lockDesc: "Application is locked. Enter PIN to continue.",
     lockPlaceholder: "Enter PIN",
     lockBtn: "Unlock",
-    lockCreateTitle: "Protection (Optional)",
-    lockCreateDesc: "Create a PIN to protect access.",
+    lockCreateTitle: "App Protection",
+    lockCreateDesc: "Set a PIN code to protect access.",
     lockCreatePlaceholder: "Create a PIN",
-    lockSetBtn: "Set PIN",
+    lockSetBtn: "Save PIN",
     lockError: "Invalid PIN code",
     lockRemove: "Remove PIN",
-    lockSaved: "PIN code set"
+    lockSaved: "PIN code set",
+    // New Buttons
+    btnCreatePin: "Create PIN Code",
+    btnBack: "Back"
   }
 };
 

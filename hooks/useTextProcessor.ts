@@ -1,9 +1,9 @@
 
-
 import React, { useRef, useCallback, useEffect } from 'react';
 import { fixTyposOnly, finalizeText, enhanceFullText, fixAndFinalize } from '../services/geminiService';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
-import { ensureProperSpacing } from '../utils/textCleaner';
+import { ensureProperSpacing, formatPunctuationOnTheFly } from '../utils/textCleaner';
+import { splitIntoBlocks, normalizeBlock } from '../utils/textStructure';
 
 interface UseTextProcessorProps {
     textRef: React.MutableRefObject<string>;
@@ -15,6 +15,8 @@ interface UseTextProcessorProps {
     setText: (text: string) => void;
     setProcessedLength: (len: number) => void;
     setCommittedLength: (len: number) => void;
+    finalizedSentences: Set<string>;
+    addFinalizedSentence: (s: string) => void;
     saveCheckpoint: (text: string, committed: number, processed: number, tags?: string[]) => void;
     onStatsUpdate: (count: number) => void;
     onStatusChange: (status: ProcessingStatus) => void;
@@ -31,6 +33,8 @@ export const useTextProcessor = ({
     setText,
     setProcessedLength,
     setCommittedLength,
+    finalizedSentences,
+    addFinalizedSentence,
     saveCheckpoint,
     onStatsUpdate,
     onStatusChange,
@@ -42,7 +46,6 @@ export const useTextProcessor = ({
     const finalizeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isFixingRef = useRef(false);
     const isFinalizingRef = useRef(false);
-    // Track the ID of the current active request to ignore stale responses
     const fixRequestIdRef = useRef(0);
 
     // Cleanup timeouts on unmount
@@ -63,190 +66,15 @@ export const useTextProcessor = ({
     }, [setIsGrammarChecking]);
 
     /**
-     * STAGE 1 & 3: Fix Typos OR Combined Fix for Sentences
-     * Handles Red -> Orange (Fragments) OR Red -> Green (Completed Sentences)
-     */
-    const processPendingTypos = useCallback(async () => {
-        if (!settingsRef.current.enabled || isFixingRef.current || 
-            statusRef.current === 'recording' || statusRef.current === 'transcribing') return;
-
-        const fullText = textRef.current;
-        const processedLen = processedLengthRef.current;
-        
-        // 1. Completion Check
-        if (processedLen >= fullText.length) {
-             setIsGrammarChecking(false);
-             if (statusRef.current === 'typing' || statusRef.current === 'thinking') {
-                 onStatusChange('idle');
-             }
-             return;
-        }
-
-        // --- OPTIMIZATION: TARGET RED ZONE ---
-        const tail = fullText.slice(processedLen);
-        
-        // DETECT SENTENCE COMPLETION
-        // Old Regex: Looked for sentence start match /^(.+?[.!?])(\s|$)/s
-        // New Logic: Check if the *tail* itself looks like a sentence ending in punctuation.
-        // This covers the "Double Finalization" request where typing stops after a period.
-        const endsWithPunctuation = /[.!?](\s|$)/.test(tail.trim().slice(-1));
-        const sentenceMatch = tail.match(/^(.+?[.!?])(\s|$)/s);
-
-        let segmentToFix = tail;
-        let isSentenceComplete = false;
-
-        // Priority 1: If the user just typed a period and waited (tail ends with punctuation),
-        // we assume they finished the sentence. Grab the whole tail.
-        if (endsWithPunctuation) {
-            segmentToFix = tail; // Process the whole thing
-            isSentenceComplete = true;
-        } 
-        // Priority 2: Standard detection of a sentence boundary in the middle of text (e.g. pasted text)
-        else if (sentenceMatch) {
-            segmentToFix = sentenceMatch[1];
-            isSentenceComplete = true;
-        } else {
-            // Priority 3: Fragments
-            // If we have a lot of text (paste), optimize by taking chunks
-            if (tail.length > 200) {
-                const breakMatch = tail.match(/[.!?\n]/);
-                if (breakMatch && breakMatch.index) {
-                    segmentToFix = tail.slice(0, breakMatch.index + 1);
-                }
-            }
-        }
-
-        const isBulkProcessing = segmentToFix.length > 100; // Legacy bulk check
-        const leadingWhitespace = segmentToFix.match(/^\s+/)?.[0] || '';
-
-        // Visual Status
-        if (isSentenceComplete || isBulkProcessing) {
-            onStatusChange('enhancing'); // Show purple/enhancing for sentence finalization
-        } else {
-            setIsGrammarChecking(true); // Show orange/checking for typos
-        }
-        
-        isFixingRef.current = true;
-        const currentRequestId = ++fixRequestIdRef.current;
-        
-        // HISTORY: Save "Raw" state before fixing
-        saveCheckpoint(fullText, committedLengthRef.current, processedLen, ['raw']);
-
-        try {
-            let correctedSegment: string;
-
-            // STRATEGY SELECTION
-            if (isSentenceComplete || isBulkProcessing) {
-                // Stage 3: Fix Typos AND Finalize (Punctuation/Caps) in one go
-                // This is the "Double Finalization" requested by user.
-                correctedSegment = await fixAndFinalize(segmentToFix, language);
-            } else {
-                // Stage 1: Just fix typos (keep it "Orange")
-                correctedSegment = await fixTyposOnly(segmentToFix, language);
-            }
-            
-            // Invalidate if a cancel happened
-            if (currentRequestId !== fixRequestIdRef.current) return;
-
-            // Restore leading whitespace if stripped
-            if (leadingWhitespace && !correctedSegment.startsWith(leadingWhitespace)) {
-                correctedSegment = leadingWhitespace + correctedSegment;
-            }
-
-            correctedSegment = ensureProperSpacing(correctedSegment);
-
-            // --- CRITICAL OPTIMIZATION: SUFFIX PRESERVATION & SPACE INJECTION ---
-            const currentText = textRef.current;
-            const currentProcessedLen = processedLengthRef.current; 
-            
-            // The segment in live editor that corresponds to what we sent
-            const pendingPrefix = currentText.slice(currentProcessedLen, currentProcessedLen + segmentToFix.length);
-
-            // Validation: Does the editor text still start with what we sent? 
-            if (pendingPrefix !== segmentToFix) {
-                console.log("Segment changed by user during API call, discarding fix.");
-                isFixingRef.current = false;
-                setIsGrammarChecking(false);
-                return;
-            }
-
-            // SPACE INJECTION LOGIC:
-            let finalCorrection = correctedSegment;
-            const userSuffix = currentText.slice(currentProcessedLen + segmentToFix.length);
-
-            if (userSuffix.length > 0 && 
-                !/^[\s.,;!?]/.test(userSuffix) && 
-                !/[\s]$/.test(finalCorrection)
-            ) {
-                 finalCorrection += ' ';
-            }
-
-            if (finalCorrection !== segmentToFix) {
-                 // APPLY FIX
-                 const newText = currentText.slice(0, currentProcessedLen) + finalCorrection + userSuffix;
-                 
-                 setText(newText);
-                 onStatsUpdate(1);
-                 
-                 const newProcessedLen = currentProcessedLen + finalCorrection.length;
-                 setProcessedLength(newProcessedLen);
-                 
-                 if (isSentenceComplete || isBulkProcessing) {
-                     // EAGER PROMOTION TO GREEN (Committed)
-                     // If we finalized the sentence, commit it immediately.
-                     setCommittedLength(newProcessedLen);
-                     saveCheckpoint(newText, newProcessedLen, newProcessedLen, ['finalized']);
-                     onStatusChange('done');
-                 } else {
-                     // Just processed (Orange)
-                     saveCheckpoint(newText, committedLengthRef.current, newProcessedLen, ['processed']);
-                     onStatusChange('idle');
-                 }
-
-            } else {
-                 // NO FIX NEEDED (BUT ADVANCE CURSOR)
-                 const newProcessedLen = currentProcessedLen + segmentToFix.length;
-                 setProcessedLength(newProcessedLen);
-                 
-                 if (isSentenceComplete || isBulkProcessing) {
-                     // Even if text didn't change, if it was a complete sentence scan, mark it Green
-                     setCommittedLength(newProcessedLen);
-                 }
-                 onStatusChange('idle');
-            }
-            
-        } catch (e) {
-            console.error(e);
-            // Fallback: Advance cursor to prevent loop on error
-            const newProcessedLen = processedLengthRef.current + segmentToFix.length;
-            if (newProcessedLen <= textRef.current.length) {
-                setProcessedLength(newProcessedLen);
-            }
-            onStatusChange('idle');
-        } finally {
-            if (currentRequestId === fixRequestIdRef.current) {
-                isFixingRef.current = false;
-                setIsGrammarChecking(false);
-                if (isSentenceComplete || isBulkProcessing) {
-                    setTimeout(() => {
-                        if (statusRef.current !== 'recording' && statusRef.current !== 'paused') {
-                            onStatusChange('idle');
-                        }
-                    }, 1500);
-                }
-            }
-        }
-    }, [language, onStatsUpdate, onStatusChange, saveCheckpoint, setText, setProcessedLength, setCommittedLength, settingsRef, statusRef, textRef, committedLengthRef, processedLengthRef, setIsGrammarChecking]);
-
-    /**
-     * STAGE 2: Finalize Text (Orange -> Green)
-     * Handles text that was already processed (Orange) but not yet finalized.
+     * STAGE 2: Finalize Text (Blue -> Green)
+     * CRITICAL FIX: We now use `fixAndFinalize` (Full Check) instead of `finalizeText`.
+     * This ensures that even if the dictionary validated the text (Blue), Gemini does a full pass
+     * to catch context errors, typos, and style issues before marking it Green.
      */
     const finalizeCommittedText = useCallback(async () => {
         if (!settingsRef.current.enabled || isFinalizingRef.current || 
             statusRef.current === 'recording') return;
 
-        // Don't run if fixing (unless we want parallel, but safer to serialize)
         if (isFixingRef.current) return;
 
         const fullText = textRef.current;
@@ -255,9 +83,14 @@ export const useTextProcessor = ({
 
         if (processedLen <= committedLen) return;
 
-        // Take the Orange segment
         const segmentToFinalize = fullText.slice(committedLen, processedLen);
         if (segmentToFinalize.trim().length < 2) return;
+
+        // FAST CHECK: Is this segment already finalized?
+        if (finalizedSentences.has(normalizeBlock(segmentToFinalize))) {
+             setCommittedLength(processedLen);
+             return;
+        }
 
         const leadingWhitespace = segmentToFinalize.match(/^\s+/)?.[0] || '';
 
@@ -266,7 +99,8 @@ export const useTextProcessor = ({
         const currentRequestId = ++fixRequestIdRef.current;
 
         try {
-            let finalizedSegment = await finalizeText(segmentToFinalize, language);
+            // FIX: Use fixAndFinalize to ensure errors in "valid" dictionary words are caught
+            let finalizedSegment = await fixAndFinalize(segmentToFinalize, language);
             
             if (currentRequestId !== fixRequestIdRef.current) return;
 
@@ -275,8 +109,8 @@ export const useTextProcessor = ({
             }
 
             finalizedSegment = ensureProperSpacing(finalizedSegment);
+            finalizedSegment = formatPunctuationOnTheFly(finalizedSegment);
 
-            // Re-fetch current state
             const currentText = textRef.current;
             const currentCommitted = committedLengthRef.current;
 
@@ -288,7 +122,7 @@ export const useTextProcessor = ({
             }
 
             if (finalizedSegment !== segmentToFinalize) {
-                 // Check spacing with next segment
+                 // Logic for suffix spacing...
                  if (/[.!?]$/.test(finalizedSegment)) {
                      const suffix = currentText.slice(currentCommitted + segmentToFinalize.length);
                      if (suffix.length > 0 && !suffix.startsWith(' ')) {
@@ -302,14 +136,15 @@ export const useTextProcessor = ({
                  setText(newText);
                  const newCommittedLen = currentCommitted + finalizedSegment.length;
                  setCommittedLength(newCommittedLen);
-                 // If finalized grew (added chars), update processed len too
                  setProcessedLength(Math.max(processedLengthRef.current, newCommittedLen));
                  onStatsUpdate(1);
                  
+                 addFinalizedSentence(finalizedSegment); // Register
                  saveCheckpoint(newText, newCommittedLen, Math.max(processedLengthRef.current, newCommittedLen), ['finalized']);
                  onStatusChange('done');
             } else {
                  setCommittedLength(currentCommitted + segmentToFinalize.length);
+                 addFinalizedSentence(segmentToFinalize); // Register
                  onStatusChange('idle');
             }
 
@@ -328,7 +163,202 @@ export const useTextProcessor = ({
             }
         }
 
-    }, [language, onStatsUpdate, onStatusChange, saveCheckpoint, setText, setCommittedLength, setProcessedLength, settingsRef, statusRef, textRef, committedLengthRef, processedLengthRef]);
+    }, [language, onStatsUpdate, onStatusChange, saveCheckpoint, setText, setCommittedLength, setProcessedLength, settingsRef, statusRef, textRef, committedLengthRef, processedLengthRef, finalizedSentences, addFinalizedSentence]);
+
+    /**
+     * STAGE 1 & 3: Fix Typos OR Combined Fix for Sentences
+     * Handles Red -> Orange (Fragments) OR Red -> Green (Completed Sentences)
+     */
+    const processPendingTypos = useCallback(async () => {
+        if (!settingsRef.current.enabled || isFixingRef.current || 
+            statusRef.current === 'recording' || statusRef.current === 'transcribing') return;
+
+        // --- BACKLOG CHECK (Fix for Stuck Blue Text) ---
+        // Check if there is "Blue" text (Processed but not Committed) that contains a sentence terminator.
+        // This happens if the user types fast past a period.
+        const committedLen = committedLengthRef.current;
+        const processedLen = processedLengthRef.current;
+        const fullText = textRef.current;
+        
+        if (processedLen > committedLen) {
+            const blueText = fullText.slice(committedLen, processedLen);
+            // If the blue text has a sentence terminator, we MUST finalize it first.
+            if (/[.!?]/.test(blueText)) {
+                // Yield to finalizer
+                finalizeCommittedText();
+                return;
+            }
+        }
+
+        if (processedLen >= fullText.length) {
+             setIsGrammarChecking(false);
+             if (statusRef.current === 'typing' || statusRef.current === 'thinking') {
+                 onStatusChange('idle');
+             }
+             return;
+        }
+
+        // --- FAST FORWARD CHECK ---
+        // Before calling AI, check if the upcoming block is already known/finalized.
+        const tail = fullText.slice(processedLen);
+        const blocks = splitIntoBlocks(tail);
+        
+        if (blocks.length > 0) {
+            const firstBlock = blocks[0];
+            const trimmedBlock = normalizeBlock(firstBlock.text);
+            
+            // If the next chunk is already finalized or is just a separator, skip it.
+            if (finalizedSentences.has(trimmedBlock)) {
+                const newProcessed = processedLen + firstBlock.text.length;
+                setProcessedLength(newProcessed);
+                setCommittedLength(newProcessed); // Restore Green status
+                // Schedule next check immediately to continue fast-forwarding if needed
+                scheduleTyposCheck(0); 
+                return;
+            }
+        }
+
+        // --- NORMAL PROCESSING ---
+
+        // DETECT SENTENCE COMPLETION
+        const endsWithPunctuation = /[.!?](\s|$)/.test(tail.trim().slice(-1));
+        const sentenceMatch = tail.match(/^(.+?[.!?])(\s|$)/s);
+
+        let segmentToFix = tail;
+        let isSentenceComplete = false;
+
+        if (endsWithPunctuation) {
+            segmentToFix = tail; 
+            isSentenceComplete = true;
+        } 
+        else if (sentenceMatch) {
+            segmentToFix = sentenceMatch[1];
+            isSentenceComplete = true;
+        } else {
+            // Fragment optimization for large pastes
+            if (tail.length > 200) {
+                const breakMatch = tail.match(/[.!?\n]/);
+                if (breakMatch && breakMatch.index) {
+                    segmentToFix = tail.slice(0, breakMatch.index + 1);
+                }
+            }
+        }
+
+        const isBulkProcessing = segmentToFix.length > 100;
+        const leadingWhitespace = segmentToFix.match(/^\s+/)?.[0] || '';
+
+        // Visual Status
+        if (isSentenceComplete || isBulkProcessing) {
+            onStatusChange('enhancing'); 
+        } else {
+            setIsGrammarChecking(true); 
+        }
+        
+        isFixingRef.current = true;
+        const currentRequestId = ++fixRequestIdRef.current;
+        
+        saveCheckpoint(fullText, committedLengthRef.current, processedLen, ['raw']);
+
+        try {
+            let correctedSegment: string;
+
+            if (isSentenceComplete || isBulkProcessing) {
+                correctedSegment = await fixAndFinalize(segmentToFix, language);
+            } else {
+                correctedSegment = await fixTyposOnly(segmentToFix, language);
+            }
+            
+            if (currentRequestId !== fixRequestIdRef.current) return;
+
+            if (leadingWhitespace && !correctedSegment.startsWith(leadingWhitespace)) {
+                correctedSegment = leadingWhitespace + correctedSegment;
+            }
+
+            correctedSegment = ensureProperSpacing(correctedSegment);
+            correctedSegment = formatPunctuationOnTheFly(correctedSegment);
+
+            const currentText = textRef.current;
+            const currentProcessedLen = processedLengthRef.current; 
+            const pendingPrefix = currentText.slice(currentProcessedLen, currentProcessedLen + segmentToFix.length);
+
+            if (pendingPrefix !== segmentToFix) {
+                isFixingRef.current = false;
+                setIsGrammarChecking(false);
+                return;
+            }
+
+            let finalCorrection = correctedSegment;
+            const userSuffix = currentText.slice(currentProcessedLen + segmentToFix.length);
+
+            // Ensure space after correction if user continues typing with a word
+            if (userSuffix.length > 0 && 
+                !/^[\s.,;!?]/.test(userSuffix) && 
+                !/[\s]$/.test(finalCorrection)
+            ) {
+                 finalCorrection += ' ';
+            }
+
+            if (finalCorrection !== segmentToFix) {
+                 // APPLY FIX
+                 const newText = currentText.slice(0, currentProcessedLen) + finalCorrection + userSuffix;
+                 
+                 setText(newText);
+                 onStatsUpdate(1);
+                 
+                 const newProcessedLen = currentProcessedLen + finalCorrection.length;
+                 setProcessedLength(newProcessedLen);
+                 
+                 if (isSentenceComplete || isBulkProcessing) {
+                     setCommittedLength(newProcessedLen);
+                     // Register this new valid sentence
+                     addFinalizedSentence(finalCorrection);
+                     saveCheckpoint(newText, newProcessedLen, newProcessedLen, ['finalized']);
+                     onStatusChange('done');
+                 } else {
+                     saveCheckpoint(newText, committedLengthRef.current, newProcessedLen, ['processed']);
+                     onStatusChange('idle');
+                 }
+
+            } else {
+                 // NO FIX NEEDED (System accepted the text)
+                 const newProcessedLen = currentProcessedLen + segmentToFix.length;
+                 setProcessedLength(newProcessedLen);
+                 
+                 if (isSentenceComplete || isBulkProcessing) {
+                     setCommittedLength(newProcessedLen);
+                     // Register existing valid sentence
+                     addFinalizedSentence(segmentToFix);
+                 }
+                 onStatusChange('idle');
+            }
+            
+        } catch (e) {
+            console.error(e);
+            // On error, we advance anyway to avoid getting stuck loop
+            const newProcessedLen = processedLengthRef.current + segmentToFix.length;
+            if (newProcessedLen <= textRef.current.length) {
+                setProcessedLength(newProcessedLen);
+            }
+            onStatusChange('idle');
+        } finally {
+            if (currentRequestId === fixRequestIdRef.current) {
+                isFixingRef.current = false;
+                setIsGrammarChecking(false);
+                if (isSentenceComplete || isBulkProcessing) {
+                    setTimeout(() => {
+                        if (statusRef.current !== 'recording' && statusRef.current !== 'paused') {
+                            onStatusChange('idle');
+                        }
+                    }, 1500);
+                }
+                
+                // Recursively check if there's more text (e.g. fast forward next block)
+                if (processedLengthRef.current < textRef.current.length) {
+                     scheduleTyposCheck(50);
+                }
+            }
+        }
+    }, [language, onStatsUpdate, onStatusChange, saveCheckpoint, setText, setProcessedLength, setCommittedLength, settingsRef, statusRef, textRef, committedLengthRef, processedLengthRef, setIsGrammarChecking, finalizedSentences, addFinalizedSentence, finalizeCommittedText]);
 
     const handleEnhance = useCallback(async () => {
         if (isFixingRef.current) return;
@@ -349,6 +379,7 @@ export const useTextProcessor = ({
             }
             
             enhanced = ensureProperSpacing(enhanced);
+            enhanced = formatPunctuationOnTheFly(enhanced);
     
             if (enhanced !== pendingText) {
                 const newText = fullText.slice(0, committedLengthRef.current) + enhanced;
@@ -356,6 +387,13 @@ export const useTextProcessor = ({
                 setCommittedLength(newText.length);
                 setProcessedLength(newText.length);
                 onStatsUpdate(1);
+                
+                // Add all blocks in enhanced text to finalized set
+                const blocks = splitIntoBlocks(enhanced);
+                blocks.forEach(b => {
+                     if (!b.isSeparator) addFinalizedSentence(b.text);
+                });
+
                 saveCheckpoint(newText, newText.length, newText.length, ['enhanced']);
                 onStatusChange('done');
             } else {
@@ -364,7 +402,7 @@ export const useTextProcessor = ({
         } catch(e) {
             onStatusChange('idle');
         }
-    }, [language, onStatsUpdate, onStatusChange, setText, setCommittedLength, setProcessedLength, textRef, committedLengthRef, saveCheckpoint]);
+    }, [language, onStatsUpdate, onStatusChange, setText, setCommittedLength, setProcessedLength, textRef, committedLengthRef, saveCheckpoint, addFinalizedSentence]);
 
     const scheduleTyposCheck = useCallback((delay: number) => {
         if (typoTimeoutRef.current) clearTimeout(typoTimeoutRef.current);

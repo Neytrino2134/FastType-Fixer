@@ -1,5 +1,4 @@
 
-
 import React from 'react';
 import { Eraser, Pause, Play, ClipboardList, Settings, Minus, Square, X, Home, HelpCircle, RotateCcw, MessageSquare, PenTool, Zap } from 'lucide-react';
 import { Language, ProcessingStatus, CorrectionSettings, Tab } from '../types';
@@ -52,54 +51,54 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const t = getTranslation(language);
 
   return (
-    <header className="titlebar-drag-region bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between shrink-0 z-50 relative select-none">
+    <header className="titlebar-drag-region bg-slate-900 border-b border-slate-800 px-3 md:px-4 py-2 md:py-3 flex items-center justify-between shrink-0 z-50 relative select-none supports-[padding-top:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)]">
       
       {/* LEFT SIDE: Tabs & Editor Controls */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 md:gap-4 flex-1 min-w-0">
          {/* TABS CONTROLLER */}
-         <div className="no-drag flex p-1 bg-slate-950 rounded-lg border border-slate-800">
+         <div className="no-drag flex p-1 bg-slate-950 rounded-lg border border-slate-800 shrink-0">
              <button
                 onClick={() => setCurrentTab('editor')}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-md text-xs font-semibold transition-all touch-manipulation ${
                     currentTab === 'editor' 
                     ? 'bg-slate-800 text-white shadow' 
                     : 'text-slate-500 hover:text-slate-300'
                 }`}
              >
-                 <PenTool className="w-3 h-3" />
-                 <span>Editor</span>
+                 <PenTool className="w-3.5 h-3.5" />
+                 <span className="hidden sm:inline">Editor</span>
              </button>
              <button
                 onClick={() => setCurrentTab('chat')}
-                className={`flex items-center gap-2 px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+                className={`flex items-center gap-1.5 px-2 md:px-3 py-1.5 rounded-md text-xs font-semibold transition-all touch-manipulation ${
                     currentTab === 'chat' 
                     ? 'bg-indigo-600 text-white shadow' 
                     : 'text-slate-500 hover:text-slate-300'
                 }`}
              >
-                 <MessageSquare className="w-3 h-3" />
-                 <span>Chat</span>
+                 <MessageSquare className="w-3.5 h-3.5" />
+                 <span className="hidden sm:inline">Chat</span>
              </button>
          </div>
 
         {currentTab === 'editor' && (
-            <div className="hidden md:flex no-drag items-center gap-1 animate-in fade-in slide-in-from-left-4 ml-2">
+            <div className="flex no-drag items-center gap-1 animate-in fade-in slide-in-from-left-4 ml-1 md:ml-2 overflow-x-auto no-scrollbar mask-linear">
             
-            {/* 1. Reset Button (Transparent) */}
+            {/* 1. Reset Button */}
             <Tooltip content={language === 'ru' ? "Сброс проверки" : "Reset checks"} side="bottom">
                 <button
                     onClick={onResetProcessor}
-                    className="p-2 rounded-full text-slate-500 hover:text-white hover:bg-slate-800 transition-all cursor-pointer group"
+                    className="p-2 rounded-full text-slate-500 hover:text-white hover:bg-slate-800 transition-all cursor-pointer group active:scale-95 touch-manipulation"
                 >
                     <RotateCcw className="w-4 h-4 group-hover:-rotate-90 transition-transform duration-300" />
                 </button>
             </Tooltip>
 
-            {/* 2. Pause Button (Transparent) */}
+            {/* 2. Pause Button */}
             <Tooltip content={settings.enabled ? t.btnPause : t.btnResume} side="bottom">
                 <button
                     onClick={onTogglePause}
-                    className={`p-2 rounded-full transition-all cursor-pointer hover:bg-slate-800 ${
+                    className={`p-2 rounded-full transition-all cursor-pointer hover:bg-slate-800 active:scale-95 touch-manipulation ${
                     settings.enabled
                         ? 'text-slate-500 hover:text-white'
                         : 'text-amber-400 hover:text-amber-300'
@@ -110,12 +109,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </Tooltip>
 
             {/* Divider */}
-            <div className="w-px h-4 bg-slate-800 mx-2" />
+            <div className="w-px h-4 bg-slate-800 mx-1 md:mx-2 shrink-0" />
 
-            {/* 3. Grammar/Check Icon (Left of Status Badge) */}
+            {/* 3. Grammar/Check Icon */}
             <Tooltip content={t.statusGrammar || "AI Error Check"} side="bottom">
               <div 
-                className={`flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 mr-2 ${
+                className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 mr-2 ${
                   isGrammarChecking 
                     ? 'bg-orange-950/30 border-orange-500/50 text-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.2)]' 
                     : 'bg-slate-800 border-slate-700 text-slate-600'
@@ -126,57 +125,59 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </Tooltip>
             
             {/* 4. Main Status Badge */}
-            <StatusBadge status={status} language={language} />
+            <div className="hidden sm:block">
+                <StatusBadge status={status} language={language} />
+            </div>
 
             </div>
         )}
       </div>
 
       {/* RIGHT SIDE Controls */}
-      <div className="flex items-center gap-3 no-drag z-50 relative">
+      <div className="flex items-center gap-2 md:gap-3 no-drag z-50 relative shrink-0">
          
-         {/* Navigation Group */}
-         <div className="flex items-center gap-1 bg-slate-800/30 p-1 rounded-lg border border-slate-800/50">
+         {/* Navigation Group - Scrollable on mobile */}
+         <div className="flex items-center gap-1 bg-slate-800/30 p-1 rounded-lg border border-slate-800/50 overflow-x-auto no-scrollbar max-w-[120px] md:max-w-none">
             <Tooltip content={t.tooltipHome} side="bottom">
-               <button onClick={onGoHome} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors cursor-pointer">
+               <button onClick={onGoHome} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors cursor-pointer active:scale-95">
                  <Home className="w-4 h-4" />
                </button>
             </Tooltip>
 
             <Tooltip content={t.tooltipHelp} side="bottom">
-               <button onClick={onToggleHelp} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors cursor-pointer">
+               <button onClick={onToggleHelp} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors cursor-pointer active:scale-95">
                  <HelpCircle className="w-4 h-4" />
                </button>
             </Tooltip>
 
             {currentTab === 'editor' && (
                 <Tooltip content={t.clipboardTitle} side="bottom">
-                <button onClick={onToggleClipboard} className={`p-1.5 rounded-md transition-colors cursor-pointer ${showClipboard ? 'bg-indigo-900/30 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}>
+                <button onClick={onToggleClipboard} className={`p-1.5 rounded-md transition-colors cursor-pointer active:scale-95 ${showClipboard ? 'bg-indigo-900/30 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}>
                     <ClipboardList className="w-4 h-4" />
                 </button>
                 </Tooltip>
             )}
 
             <Tooltip content={t.tooltipSettings} side="bottom">
-              <button onClick={onToggleSettings} className={`p-1.5 rounded-md transition-colors cursor-pointer ${showSettings ? 'bg-indigo-900/30 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}>
+              <button onClick={onToggleSettings} className={`p-1.5 rounded-md transition-colors cursor-pointer active:scale-95 ${showSettings ? 'bg-indigo-900/30 text-indigo-400' : 'hover:bg-slate-800 text-slate-400'}`}>
                 <Settings className="w-4 h-4" />
               </button>
             </Tooltip>
          </div>
 
-         <div className="h-5 w-px bg-slate-800 mx-1"></div>
+         <div className="h-5 w-px bg-slate-800 mx-0.5 md:mx-1 hidden md:block"></div>
 
          {/* Language & Stats */}
          <div className="flex items-center gap-2">
             <Tooltip content={t.tooltipLang} side="bottom">
-              <button onClick={onToggleLanguage} className="px-2 py-1 rounded bg-slate-800 text-[10px] font-bold text-slate-400 hover:text-white border border-slate-700 transition-colors uppercase cursor-pointer min-w-[32px]">
+              <button onClick={onToggleLanguage} className="px-2 py-1.5 rounded bg-slate-800 text-[10px] font-bold text-slate-400 hover:text-white border border-slate-700 transition-colors uppercase cursor-pointer min-w-[32px] active:scale-95">
                 {language}
               </button>
             </Tooltip>
 
             {currentTab === 'editor' && (
                 <Tooltip content={t.tooltipStats} side="bottom">
-                <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-slate-800 rounded-md text-xs font-semibold text-slate-400 border border-slate-700 select-none">
+                <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-md text-xs font-semibold text-slate-400 border border-slate-700 select-none">
                     <Eraser className="w-3 h-3" />
                     <span>{stats.corrections}</span>
                 </div>
@@ -184,10 +185,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             )}
          </div>
 
-         <div className="h-5 w-px bg-slate-800 mx-1"></div>
-
-         {/* Version & Window Controls */}
-         <div className="flex items-center gap-2">
+         {/* Version & Window Controls - HIDDEN ON MOBILE */}
+         <div className="hidden md:flex items-center gap-3 pl-2 border-l border-slate-800 ml-1">
            <span className="hidden lg:block text-[10px] font-mono text-slate-700 select-none">v{APP_VERSION}</span>
            <div className="flex items-center gap-1">
              <button onClick={() => onWindowControl('minimize')} className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors cursor-pointer"><Minus className="w-4 h-4" /></button>

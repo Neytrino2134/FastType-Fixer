@@ -3,6 +3,7 @@
 export interface CorrectionSettings {
   enabled: boolean;
   debounceMs: number;
+  finalizationTimeout: number; // New setting for idle timeout
   fixTypos: boolean;
   fixPunctuation: boolean;
   clipboardEnabled: boolean;
@@ -24,6 +25,7 @@ export interface HistorySnapshot {
   committedLength: number;
   processedLength: number;
   tags?: string[]; // Added tags for history categorization
+  finalizedSentences?: string[]; // New: Content based checkpoints
 }
 
 export interface EditorState {

@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { HelpCircle, Keyboard, Mic, Zap, X } from 'lucide-react';
+import { HelpCircle, Keyboard, Mic, Zap, X, Palette } from 'lucide-react';
 import { Language } from '../types';
 import { getTranslation } from '../utils/i18n';
 
@@ -40,6 +41,19 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, language 
 
         <div className="p-6 space-y-6">
           
+          {/* Section: How it works */}
+          <div className="flex gap-4">
+            <div className="shrink-0 p-3 bg-blue-500/10 rounded-lg h-fit">
+              <Palette className="w-5 h-5 text-blue-400" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-200 mb-1">{t.howItWorksTitle}</h3>
+              <p className="text-sm text-slate-400 leading-relaxed whitespace-pre-line">
+                {t.howItWorksDesc}
+              </p>
+            </div>
+          </div>
+
           {/* Section 1: Typing */}
           <div className="flex gap-4">
             <div className="shrink-0 p-3 bg-indigo-500/10 rounded-lg h-fit">

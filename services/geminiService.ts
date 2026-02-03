@@ -1,5 +1,4 @@
 
-
 import { GoogleGenAI } from "@google/genai";
 import { Language } from "../types";
 import { getPrompts } from "../utils/i18n";
@@ -29,8 +28,8 @@ export const fixTyposOnly = async (text: string, language: Language): Promise<st
       contents: text,
       config: {
         systemInstruction: prompts.fixTypos,
-        // Lower temperature for stricter adherence to the text (less hallucination)
-        temperature: 0.1, 
+        // Increased from 0.1 to 0.2 to allow slight flexibility for typo guessing
+        temperature: 0.2, 
         maxOutputTokens: 2048,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },

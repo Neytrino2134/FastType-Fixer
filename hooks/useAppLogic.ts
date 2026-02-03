@@ -25,6 +25,7 @@ export const useAppLogic = () => {
   const [settings, setSettings] = useState<CorrectionSettings>({
     enabled: true,
     debounceMs: 700,
+    finalizationTimeout: 5000,
     fixTypos: true,
     fixPunctuation: true,
     clipboardEnabled: true,

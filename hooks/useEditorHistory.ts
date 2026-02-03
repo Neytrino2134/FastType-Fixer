@@ -1,5 +1,4 @@
 
-
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { HistorySnapshot } from '../types';
 
@@ -16,9 +15,10 @@ export const useEditorHistory = () => {
           text: parsed.text || '',
           committedLength: parsed.committedLength || 0,
           processedLength: parsed.processedLength || 0,
-          checkedLength: parsed.checkedLength || 0, // Load checkedLength
+          checkedLength: parsed.checkedLength || 0,
           history: parsed.history || [],
-          historyIndex: parsed.historyIndex || 0
+          historyIndex: parsed.historyIndex || 0,
+          finalizedSentences: parsed.finalizedSentences || []
         };
       }
     } catch (e) {
@@ -32,7 +32,13 @@ export const useEditorHistory = () => {
   const [text, setText] = useState(savedState?.text || '');
   const [committedLength, setCommittedLength] = useState(savedState?.committedLength || 0);
   const [processedLength, setProcessedLength] = useState(savedState?.processedLength || 0);
-  const [checkedLength, setCheckedLength] = useState(savedState?.checkedLength || 0); // New State
+  const [checkedLength, setCheckedLength] = useState(savedState?.checkedLength || 0);
+
+  // Registry of content that is considered "Finalized" (Green)
+  // This allows sentences to stay green even if text before them changes.
+  const [finalizedSentences, setFinalizedSentences] = useState<Set<string>>(
+      new Set(savedState?.finalizedSentences || [])
+  );
 
   // History State
   const [history, setHistory] = useState<HistorySnapshot[]>(
@@ -44,7 +50,8 @@ export const useEditorHistory = () => {
       committedLength: 0, 
       processedLength: 0, 
       timestamp: Date.now(),
-      tags: [] 
+      tags: [],
+      finalizedSentences: []
     }]
   );
   
@@ -61,15 +68,27 @@ export const useEditorHistory = () => {
       processedLength,
       checkedLength,
       history,
-      historyIndex
+      historyIndex,
+      finalizedSentences: Array.from(finalizedSentences)
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-  }, [text, committedLength, processedLength, checkedLength, history, historyIndex]);
+  }, [text, committedLength, processedLength, checkedLength, history, historyIndex, finalizedSentences]);
 
   // Fix history index when history updates
   useEffect(() => {
     setHistoryIndex((prev: number) => Math.min(prev, history.length - 1));
   }, [history.length]);
+
+  const addFinalizedSentence = useCallback((sentence: string) => {
+      const trimmed = sentence.trim();
+      if (trimmed.length > 0) {
+          setFinalizedSentences(prev => {
+              const newSet = new Set(prev);
+              newSet.add(trimmed);
+              return newSet;
+          });
+      }
+  }, []);
 
   const saveCheckpoint = useCallback((newText: string, newCommitted: number, newProcessed: number, tags: string[] = []) => {
     if (isUndoingRef.current) return;
@@ -78,6 +97,7 @@ export const useEditorHistory = () => {
       const currentSlice = prev.slice(0, historyIndex + 1);
       const lastState = currentSlice[currentSlice.length - 1];
 
+      // De-duplication check
       if (lastState && lastState.text === newText && lastState.committedLength === newCommitted && (!tags.length || JSON.stringify(lastState.tags) === JSON.stringify(tags))) {
         return prev;
       }
@@ -88,7 +108,8 @@ export const useEditorHistory = () => {
         committedLength: newCommitted, 
         processedLength: newProcessed,
         timestamp: Date.now(),
-        tags: tags
+        tags: tags,
+        finalizedSentences: Array.from(finalizedSentences) // Save snapshot of valid sentences
       }];
       
       if (nextHistory.length > 50) return nextHistory.slice(1);
@@ -96,7 +117,7 @@ export const useEditorHistory = () => {
     });
 
     setHistoryIndex((prev: number) => prev + 1);
-  }, [historyIndex]);
+  }, [historyIndex, finalizedSentences]);
 
   const performUndo = useCallback(() => {
     if (historyIndex > 0) {
@@ -106,8 +127,12 @@ export const useEditorHistory = () => {
       setText(prevState.text);
       setCommittedLength(prevState.committedLength);
       setProcessedLength(prevState.processedLength);
-      // For legacy history items without checkedLength, fallback to processedLength
       setCheckedLength((prevState as any).checkedLength ?? prevState.processedLength);
+      
+      if (prevState.finalizedSentences) {
+          setFinalizedSentences(new Set(prevState.finalizedSentences));
+      }
+      
       setHistoryIndex(historyIndex - 1);
 
       setTimeout(() => { isUndoingRef.current = false; }, 50);
@@ -125,6 +150,11 @@ export const useEditorHistory = () => {
       setCommittedLength(nextState.committedLength);
       setProcessedLength(nextState.processedLength);
       setCheckedLength((nextState as any).checkedLength ?? nextState.processedLength);
+
+      if (nextState.finalizedSentences) {
+          setFinalizedSentences(new Set(nextState.finalizedSentences));
+      }
+
       setHistoryIndex(historyIndex + 1);
 
       setTimeout(() => { isUndoingRef.current = false; }, 50);
@@ -142,6 +172,11 @@ export const useEditorHistory = () => {
        setCommittedLength(state.committedLength);
        setProcessedLength(state.processedLength);
        setCheckedLength((state as any).checkedLength ?? state.processedLength);
+       
+       if (state.finalizedSentences) {
+           setFinalizedSentences(new Set(state.finalizedSentences));
+       }
+
        setHistoryIndex(index);
        
        setTimeout(() => { isUndoingRef.current = false; }, 50);
@@ -159,6 +194,8 @@ export const useEditorHistory = () => {
     setProcessedLength,
     checkedLength,
     setCheckedLength,
+    finalizedSentences,
+    addFinalizedSentence,
     saveCheckpoint,
     undo: performUndo,
     redo: performRedo,

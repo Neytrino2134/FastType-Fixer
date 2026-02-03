@@ -9,7 +9,6 @@ import { useNotification } from '../contexts/NotificationContext';
 import { useEditorHotkeys } from './useEditorHotkeys';
 import { useTextProcessor } from './useTextProcessor';
 import { COMMON_WORDS_RU, COMMON_WORDS_EN } from '../data/dictionary';
-import { formatPunctuationOnTheFly } from '../utils/textCleaner';
 
 interface UseSmartEditorProps {
     settings: CorrectionSettings;
@@ -43,7 +42,8 @@ export const useSmartEditor = ({
     text, setText, 
     committedLength, setCommittedLength, 
     processedLength, setProcessedLength,
-    checkedLength, setCheckedLength, // New State
+    checkedLength, setCheckedLength,
+    finalizedSentences, addFinalizedSentence, // New
     saveCheckpoint, undo, redo, canUndo, canRedo,
     history, historyIndex, jumpTo
   } = useEditorHistory();
@@ -105,6 +105,8 @@ export const useSmartEditor = ({
       setText,
       setProcessedLength,
       setCommittedLength,
+      finalizedSentences, 
+      addFinalizedSentence,
       saveCheckpoint,
       onStatsUpdate,
       onStatusChange,
@@ -141,13 +143,16 @@ export const useSmartEditor = ({
         const { type, validatedLength, checkedLength: newCheckedLength } = e.data;
         
         if (type === 'CHECK_RESULT') {
-            // FEATURE 1: Update Processed/Orange Length (Valid words)
+            // FEATURE 1: Update Processed/Blue Length (Valid words)
+            // Ensure we don't regress if commits happened
             const newProcessedLength = Math.max(validatedLength, committedLengthRef.current);
             if (newProcessedLength !== processedLengthRef.current) {
                  setProcessedLength(newProcessedLength);
             }
 
             // FEATURE 1.5: Update Checked/Red Length (Scanned words)
+            // The worker tells us how far it scanned (checkedLength).
+            // If checkedLength > processedLength, the difference is INVALID words (Red).
             const safeCheckedLength = Math.max(newCheckedLength, newProcessedLength);
             if (safeCheckedLength !== checkedLengthRef.current) {
                 setCheckedLength(safeCheckedLength);
@@ -188,6 +193,7 @@ export const useSmartEditor = ({
   // --- STUCK STATE WATCHDOG (DOUBLE CHECK) ---
   useEffect(() => {
     if (!settings.enabled) return;
+    
     // Watchdog triggers if checked text exists (Red) but isn't being processed
     if ((status === 'idle' || status === 'done') && text.length > processedLength) {
         const stuckTimeout = setTimeout(() => {
@@ -203,7 +209,18 @@ export const useSmartEditor = ({
 
         return () => clearTimeout(stuckTimeout);
     }
-  }, [status, text.length, processedLength, settings.enabled, scheduleTyposCheck, onStatusChange]);
+
+    // NEW: Watchdog triggers if text is Blue (processed > committed) but stuck (not finalizing)
+    // Uses the configurable settings.finalizationTimeout
+    if (processedLength > committedLength && (status === 'idle' || status === 'done')) {
+        const blueStuckTimeout = setTimeout(() => {
+            // Force schedule finalization if stuck in Blue
+            // This ensures "Blue" text gets re-checked by AI
+            scheduleFinalization(0);
+        }, settings.finalizationTimeout); // Configurable timeout
+        return () => clearTimeout(blueStuckTimeout);
+    }
+  }, [status, text.length, processedLength, committedLength, settings.enabled, settings.finalizationTimeout, scheduleTyposCheck, onStatusChange, scheduleFinalization]);
 
   // --- ANTI-FREEZE WATCHDOG ---
   useEffect(() => {
@@ -272,9 +289,8 @@ export const useSmartEditor = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     let newVal = e.target.value;
     
-    // Feature: Auto-format punctuation spacing on the fly
-    // "text , text" -> "text, text"
-    newVal = formatPunctuationOnTheFly(newVal);
+    // REMOVED: formatPunctuationOnTheFly(newVal) to fix cursor jumping issues.
+    // The cleanup logic has been moved to useTextProcessor.ts (async processing).
 
     const oldVal = textRef.current;
     // DETECT PASTE (length change > 1)
@@ -319,19 +335,17 @@ export const useSmartEditor = ({
     const wordStartIndex = lastSeparatorIndex === -1 ? 0 : lastSeparatorIndex + 1;
 
     // FEATURE 3: Revert state logic
-    // Reset processedLength (Orange) if we edited inside it
-    if (processedLengthRef.current > wordStartIndex) {
-        setProcessedLength(wordStartIndex);
-    }
-    // Reset checkedLength (Red) if we edited inside it
-    if (checkedLengthRef.current > wordStartIndex) {
-        setCheckedLength(wordStartIndex);
-    }
-    // Reset committedLength (Green) if we edited inside it
+    // Reset Processed/Checked to the edit point.
+    // NOTE: committedLength also resets, but `finalizedSentences` set will preserve visual green state.
+    
+    setProcessedLength(wordStartIndex);
+    processedLengthRef.current = wordStartIndex;
+
+    setCheckedLength(wordStartIndex);
+    checkedLengthRef.current = wordStartIndex;
+    
     if (diffIndex < committedLengthRef.current) {
         setCommittedLength(Math.max(0, diffIndex - 1));
-        setProcessedLength(diffIndex);
-        setCheckedLength(diffIndex);
     }
 
     // 2. WORKER DICTIONARY CHECK (Async)
@@ -348,24 +362,15 @@ export const useSmartEditor = ({
     if (settings.enabled && statusRef.current !== 'recording') {
         const lastChar = newVal.slice(-1);
         const isWordBoundary = /[\s.,;!?]/.test(lastChar);
-        // Default delay or fast reaction for word ends
         const checkDelay = isWordBoundary ? 50 : settings.debounceMs;
-        
-        // Fix: Check for punctuation at end of string or before space
         const endsWithPunctuation = /[.!?](\s|$)/.test(newVal.slice(-2));
 
         if (isPaste) {
-            // Paste: Schedule Typos check aggressively to handle big chunks
             scheduleTyposCheck(500);
         } else if (endsWithPunctuation) {
-            // Dot/Exclamation/Question: 
-            // 1. If text is Red (unprocessed), scheduleTyposCheck(200) triggers the "Double Finalization" logic (Fix+Finalize).
-            // 2. If text is Orange (valid words), scheduleFinalization(200) ensures we commit the sentence Green.
-            // We schedule BOTH to cover all states.
             scheduleTyposCheck(200);
             scheduleFinalization(200);
         } else {
-            // Normal typing
             scheduleTyposCheck(checkDelay);
         }
     }
@@ -395,8 +400,13 @@ export const useSmartEditor = ({
 
             setText(newTextValue);
             setProcessedLength(newProcessedLen); 
-            setCheckedLength(newProcessedLen); // Transcribed text is assumed "scanned"
+            setCheckedLength(newProcessedLen); 
             
+            // Mark dictated chunks as finalized if they look like sentences
+            if (/[.!?]$/.test(transcription.trim())) {
+                addFinalizedSentence(transcription.trim());
+            }
+
             onStatsUpdate(1);
             saveCheckpoint(newTextValue, currentCommitted, newProcessedLen, ['dictated']);
             scheduleFinalization(1000);
@@ -423,7 +433,7 @@ export const useSmartEditor = ({
             }
         }
     }
-  }, [language, onStatsUpdate, onStatusChange, scheduleFinalization, setText, setProcessedLength, setCheckedLength, ensureProperSpacing, saveCheckpoint]);
+  }, [language, onStatsUpdate, onStatusChange, scheduleFinalization, setText, setProcessedLength, setCheckedLength, ensureProperSpacing, saveCheckpoint, addFinalizedSentence]);
 
   // Audio Auto-Stop Logic
   useEffect(() => {
@@ -469,7 +479,8 @@ export const useSmartEditor = ({
       text,
       committedLength,
       processedLength,
-      checkedLength, // Return new state
+      checkedLength,
+      finalizedSentences, // Expose for surface
       textareaRef,
       backdropRef,
       isBusy,

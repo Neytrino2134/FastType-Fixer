@@ -27,11 +27,12 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
           text: t.statusThinking,
           color: 'bg-amber-950/30 text-amber-200 border-amber-900/50'
         };
-      case 'grammar_check': // New Badge
+      case 'grammar_check': 
         return {
-          icon: <Zap className="w-4 h-4 text-orange-400 animate-pulse" />, // Changed to Zap (Lightning)
+          // Changed to Gray as requested to be less distracting
+          icon: <Zap className="w-4 h-4 text-slate-400" />, 
           text: t.statusGrammar || "AI Error Check",
-          color: 'bg-orange-950/30 text-orange-200 border-orange-900/50'
+          color: 'bg-slate-800 text-slate-400 border-slate-700'
         };
       case 'correcting':
         return {
@@ -81,9 +82,14 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
   const config = getStatusConfig();
 
   return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all duration-300 ${config.color}`}>
-      {config.icon}
-      <span>{config.text}</span>
+    <div 
+        key={status} // Key triggers React reconciliation for smooth replacement
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all duration-500 ease-in-out ${config.color}`}
+    >
+      <span className="animate-in fade-in zoom-in duration-300 flex items-center gap-2">
+        {config.icon}
+        <span>{config.text}</span>
+      </span>
     </div>
   );
 };

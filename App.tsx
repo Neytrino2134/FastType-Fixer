@@ -16,15 +16,26 @@ export default function App() {
   const { state, actions } = useAppLogic();
   const t = getTranslation(state.language);
   
-  // Local state to handle exit animation
-  const [isExiting, setIsExiting] = useState(false);
+  // Local state to handle exit animations
+  const [isExitingApp, setIsExitingApp] = useState(false);
+  const [isExitingWelcome, setIsExitingWelcome] = useState(false);
 
+  // Handle transition from Welcome -> App
+  const handleStartWithAnimation = (key: string) => {
+    setIsExitingWelcome(true);
+    setTimeout(() => {
+      actions.handleStartApp(key);
+      setIsExitingWelcome(false);
+    }, 600); // Matches the CSS duration in WelcomeScreen
+  };
+
+  // Handle transition from App -> Welcome
   const handleGoHome = () => {
-    setIsExiting(true);
+    setIsExitingApp(true);
     setTimeout(() => {
       actions.handleReturnToWelcome();
-      setIsExiting(false);
-    }, 400); 
+      setIsExitingApp(false);
+    }, 500); // Matches the CSS duration below
   };
 
   // --- RENDER VIEWS ---
@@ -38,13 +49,14 @@ export default function App() {
       <>
         <WelcomeScreen 
           initialKey={state.storedKey} 
-          onStart={actions.handleStartApp} 
+          onStart={handleStartWithAnimation} 
           language={state.language}
           setLanguage={actions.setLanguage}
           isLocked={state.isLocked}
           hasLock={state.hasLock}
           onUnlock={actions.handleUnlock}
           onSetLock={actions.handleSetLock}
+          isExiting={isExitingWelcome} // Pass exit state
         />
         <NotificationSystem />
       </>
@@ -55,7 +67,9 @@ export default function App() {
   return (
     <div 
         className={`flex flex-col h-screen bg-slate-950 text-slate-200 overflow-hidden relative transition-all duration-500 ease-in-out ${
-            isExiting ? 'opacity-0 translate-y-8 scale-95' : 'opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-4 duration-500'
+            isExitingApp 
+              ? 'opacity-0 translate-y-8 scale-95 blur-sm' 
+              : 'opacity-100 translate-y-0 scale-100 blur-0 animate-in fade-in slide-in-from-bottom-8'
         }`}
     >
       

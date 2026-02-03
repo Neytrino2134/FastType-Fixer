@@ -1,0 +1,2 @@
+Place your English dictionary file here (oxford-3000.json).
+The app expects a JSON file containing an array of words or objects with a 'word' property.

@@ -59,7 +59,8 @@ export const finalizeText = async (text: string, language: Language): Promise<st
       contents: text,
       config: {
         systemInstruction: prompts.finalize,
-        temperature: 0.3, 
+        // Lowered temperature to 0.1 to discourage creative "options" response
+        temperature: 0.1, 
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },
@@ -79,7 +80,7 @@ export const finalizeText = async (text: string, language: Language): Promise<st
 };
 
 // STAGE 3 (Combined): Fix & Finalize (Grey -> Green in one go)
-// Used for large text pastes or bulk edits
+// Used for large text pastes, dictation, or bulk edits
 export const fixAndFinalize = async (text: string, language: Language): Promise<string> => {
   if (!text || text.trim().length === 0) return text;
   if (!ai) return text;
@@ -92,7 +93,8 @@ export const fixAndFinalize = async (text: string, language: Language): Promise<
       contents: text,
       config: {
         systemInstruction: prompts.combined, // Use combined system instruction
-        temperature: 0.3, 
+        // Lowered temperature to 0.1 for strict output
+        temperature: 0.1, 
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },
@@ -128,7 +130,8 @@ export const enhanceFullText = async (text: string, language: Language): Promise
       contents: text,
       config: {
         systemInstruction: prompts.enhance,
-        temperature: 0.2, // Lowered temperature to prevent conversation
+        // Strict low temperature
+        temperature: 0.1, 
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },

@@ -1,6 +1,5 @@
-
-import React from 'react';
-import { Lock, CheckCheck, Undo2, Redo2, Square, Mic, Wand2, Timer, Loader2, Clock } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Lock, CheckCheck, Undo2, Redo2, Square, Mic, Wand2, Loader2, Clock, Upload, Send, FileAudio, X } from 'lucide-react';
 import { getTranslation } from '../../utils/i18n';
 import { Language, ProcessingStatus } from '../../types';
 import { Tooltip } from '../Tooltip';
@@ -18,6 +17,7 @@ interface EditorToolbarProps {
   onRedo: () => void;
   onRecord: () => void;
   onEnhance: () => void;
+  onFileUpload: (file: File) => void;
   autoStopCountdown?: number | null;
   onHistoryClick: () => void;
   isHistoryOpen: boolean;
@@ -36,29 +36,42 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onRedo,
   onRecord,
   onEnhance,
+  onFileUpload,
   autoStopCountdown,
   onHistoryClick,
   isHistoryOpen
 }) => {
   const t = getTranslation(language);
-
   const isEnhancing = status === 'enhancing';
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+        setSelectedFile(e.target.files[0]);
+    }
+  };
+
+  const handleSendFile = () => {
+    if (selectedFile) {
+        onFileUpload(selectedFile);
+        setSelectedFile(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const clearFile = () => {
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
 
   return (
     <div className="absolute bottom-0 md:bottom-6 left-0 md:left-auto md:right-6 w-full md:w-auto flex md:inline-flex items-center justify-between md:justify-start gap-3 md:gap-4 z-30 pointer-events-auto select-none bg-slate-900/90 md:bg-transparent backdrop-blur-lg md:backdrop-blur-none border-t md:border-none border-slate-800 p-3 md:p-0 safe-area-bottom">
       
       {/* LEFT GROUP ON MOBILE (Stats) */}
       <div className="flex items-center gap-3">
-          {/* Auto-Stop Countdown Badge */}
-          {status === 'recording' && autoStopCountdown !== null && autoStopCountdown !== undefined && autoStopCountdown <= 5 && (
-            <div className="animate-in fade-in zoom-in duration-200 flex items-center gap-2 px-3 py-2 bg-emerald-950/80 border border-emerald-500/50 rounded-lg shadow-xl shadow-emerald-900/20 backdrop-blur-md">
-                <Timer className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span className="text-sm font-bold text-emerald-200 tabular-nums">
-                    {autoStopCountdown}s
-                </span>
-            </div>
-          )}
-
+          
           {/* Status Indicators (Hidden on small mobile) */}
           <div className="hidden sm:flex items-center gap-3">
               <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-950/30 rounded border border-emerald-900/50">
@@ -128,7 +141,7 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
         <Tooltip content={status === 'recording' ? t.btnStop : t.btnRecord} side="top">
             <button
             onClick={onRecord}
-            disabled={isBusy && status !== 'recording'}
+            // Always enabled to allow immediate interruption/recording
             className={`flex items-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${
                 status === 'recording' 
                 ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30 animate-pulse' 
@@ -139,6 +152,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                 <>
                 <Square className="w-5 h-5 md:w-4 md:h-4 fill-current" />
                 <span className="hidden sm:inline">{t.btnStop}</span>
+                {typeof autoStopCountdown === 'number' && autoStopCountdown <= 5 && (
+                   <span className="font-mono font-bold tabular-nums">({autoStopCountdown})</span>
+                )}
                 </>
             ) : (
                 <>
@@ -149,13 +165,53 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             </button>
         </Tooltip>
 
-        <Tooltip content={t.btnEnhance} side="left">
+        {/* File Upload Group */}
+        <div className="flex items-center gap-1">
+             <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="audio/*"
+                onChange={handleFileChange}
+             />
+             
+             {!selectedFile ? (
+                <Tooltip content={language === 'ru' ? "Загрузить аудио" : "Upload Audio"} side="top">
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isBusy}
+                        className="p-2.5 md:p-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors"
+                    >
+                        <Upload className="w-5 h-5 md:w-4 md:h-4" />
+                    </button>
+                </Tooltip>
+             ) : (
+                <div className="flex items-center gap-1 bg-slate-800 rounded-lg border border-slate-700 p-1 pr-2 animate-in fade-in slide-in-from-bottom-2">
+                    <button onClick={clearFile} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-red-400">
+                        <X className="w-4 h-4" />
+                    </button>
+                    <span className="text-xs text-slate-300 max-w-[80px] truncate flex items-center gap-1">
+                        <FileAudio className="w-3 h-3 shrink-0" />
+                        {selectedFile.name}
+                    </span>
+                    <button 
+                        onClick={handleSendFile}
+                        className="ml-1 p-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded shadow-sm"
+                        title={language === 'ru' ? "Отправить" : "Transcribe"}
+                    >
+                        <Send className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+             )}
+        </div>
+
+        <Tooltip content={t.btnEnhance} side="top">
             <button
             onClick={onEnhance}
-            disabled={isBusy}
+            disabled={isBusy || isEnhancing}
             className={`flex items-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group touch-manipulation
                 ${isEnhancing 
-                    ? 'bg-indigo-600 text-white cursor-wait opacity-80' 
+                    ? 'bg-indigo-600 text-white cursor-wait opacity-80 border border-indigo-500 shadow-indigo-900/50' 
                     : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-purple-600 hover:text-white hover:border-purple-500 hover:shadow-purple-900/30'
                 }
             `}

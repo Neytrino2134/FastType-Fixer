@@ -1,7 +1,7 @@
 
 
 import React from 'react';
-import { Loader2, Zap, Brain, CheckCircle2, PencilLine, Sparkles, Mic, Waves, PauseCircle } from 'lucide-react';
+import { Loader2, Zap, Brain, CheckCircle2, PencilLine, Sparkles, Mic, Waves, PauseCircle, BookOpen, AlertTriangle, ShieldCheck, Wand2 } from 'lucide-react';
 import { ProcessingStatus, Language } from '../types';
 import { getTranslation } from '../utils/i18n';
 
@@ -13,38 +13,56 @@ interface StatusBadgeProps {
 export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) => {
   const t = getTranslation(language);
 
+  // Определяем, какие статусы должны быть полноценными плашками (с текстом и фоном)
+  // Остальные будут отображаться как отдельные иконки
+  const isFullBadge = [
+    'ai_fixing', 
+    'ai_finalizing', 
+    'enhancing', 
+    'transcribing', 
+    'recording', 
+    'done', 
+    'error',
+    'script_fix' // New full badge
+  ].includes(status);
+
   const getStatusConfig = () => {
     switch (status) {
       case 'typing':
         return {
-          icon: <PencilLine className="w-4 h-4 text-slate-400" />,
+          icon: <PencilLine className="w-4 h-4 text-slate-500 animate-pulse" />,
           text: t.statusTyping,
-          color: 'bg-slate-800 text-slate-300 border-slate-700'
+          color: 'bg-transparent border-transparent text-slate-500' // Icon style
         };
-      case 'thinking':
+      case 'dict_check':
         return {
-          icon: <Brain className="w-4 h-4 text-amber-400 animate-pulse" />,
-          text: t.statusThinking,
-          color: 'bg-amber-950/30 text-amber-200 border-amber-900/50'
+          icon: <BookOpen className="w-4 h-4 text-amber-400" />,
+          text: t.statusDictCheck || "Dict Check",
+          color: 'bg-transparent border-transparent text-amber-400' // Icon style
         };
-      case 'grammar_check': 
+      case 'ai_fixing':
         return {
-          // Changed to Gray as requested to be less distracting
-          icon: <Zap className="w-4 h-4 text-slate-400" />, 
-          text: t.statusGrammar || "AI Error Check",
-          color: 'bg-slate-800 text-slate-400 border-slate-700'
+          icon: <Brain className="w-4 h-4 text-purple-400 animate-pulse" />,
+          text: t.statusAiFixing || "AI Fixing",
+          color: 'bg-purple-950/30 text-purple-200 border-purple-900/50'
         };
-      case 'correcting':
+      case 'ai_finalizing':
         return {
-          icon: <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />,
-          text: t.statusCorrecting,
-          color: 'bg-blue-950/30 text-blue-200 border-blue-900/50'
+          icon: <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />,
+          text: t.statusAiFinalizing || "Finalizing",
+          color: 'bg-emerald-950/30 text-emerald-200 border-emerald-900/50'
+        };
+      case 'script_fix':
+        return {
+            icon: <Wand2 className="w-4 h-4 text-blue-400 animate-pulse" />,
+            text: t.statusScriptFix || "Auto-Format",
+            color: 'bg-blue-950/30 text-blue-200 border-blue-900/50'
         };
       case 'enhancing':
         return {
-          icon: <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />,
-          text: t.statusEnhancing,
-          color: 'bg-purple-950/30 text-purple-200 border-purple-900/50'
+            icon: <Sparkles className="w-4 h-4 text-purple-400 animate-spin" />,
+            text: t.statusEnhancing || "Enhancing...",
+            color: 'bg-purple-950/30 text-purple-200 border-purple-900/50'
         };
       case 'recording':
         return {
@@ -66,15 +84,22 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
         };
       case 'paused':
         return {
-            icon: <PauseCircle className="w-4 h-4 text-amber-400" />,
+            icon: <PauseCircle className="w-4 h-4 text-slate-600" />,
             text: t.statusPaused,
-            color: 'bg-amber-950/20 text-amber-200 border-amber-900/50'
+            color: 'bg-transparent border-transparent text-slate-600' // Icon style
+        };
+      case 'error':
+        return {
+            icon: <AlertTriangle className="w-4 h-4 text-red-500" />,
+            text: t.statusError || "Error",
+            color: 'bg-red-950/40 text-red-300 border-red-800'
         };
       default:
+        // Default verification state (Idle)
         return {
-          icon: <Zap className="w-4 h-4 text-slate-500" />,
+          icon: <ShieldCheck className="w-4 h-4 text-slate-700" />,
           text: t.statusIdle,
-          color: 'bg-slate-900 text-slate-500 border-slate-800'
+          color: 'bg-transparent border-transparent text-slate-700' // Icon style
         };
     }
   };
@@ -82,14 +107,35 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
   const config = getStatusConfig();
 
   return (
-    <div 
-        key={status} // Key triggers React reconciliation for smooth replacement
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all duration-500 ease-in-out ${config.color}`}
-    >
-      <span className="animate-in fade-in zoom-in duration-300 flex items-center gap-2">
-        {config.icon}
-        <span>{config.text}</span>
-      </span>
-    </div>
+    <>
+      <style>{`
+        @keyframes slideUpFade {
+          0% { transform: translateY(100%); opacity: 0; filter: blur(2px); }
+          100% { transform: translateY(0); opacity: 1; filter: blur(0); }
+        }
+      `}</style>
+      
+      <div 
+          title={!isFullBadge ? config.text : undefined} // Tooltip for icon-only modes
+          className={`
+            relative overflow-hidden flex items-center justify-center 
+            h-8 rounded-full border text-sm font-medium 
+            transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] 
+            ${config.color}
+            ${isFullBadge ? 'px-4 min-w-[140px] shadow-sm' : 'w-8 px-0 shadow-none'}
+          `}
+      >
+        <div 
+          key={status} 
+          className="flex items-center gap-2 w-full justify-center absolute inset-0"
+          style={{ animation: 'slideUpFade 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' }}
+        >
+          <span className="shrink-0 flex items-center justify-center">{config.icon}</span>
+          {isFullBadge && (
+            <span className="truncate">{config.text}</span>
+          )}
+        </div>
+      </div>
+    </>
   );
 };

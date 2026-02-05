@@ -1,4 +1,5 @@
 
+
 // Initial fallback sets (kept small for immediate startup)
 const INITIAL_RU = [
   "и", "в", "не", "на", "я", "быть", "он", "с", "что", "а", "по", "это", "она", "этот", "к", "но", "они", "мы", "как", "из",
@@ -27,6 +28,13 @@ export const COMMON_WORDS_EN = new Set<string>(INITIAL_EN);
 // STRICT CLEANING: Removes everything except letters and numbers. 
 // "word-word" -> "wordword", "word." -> "word"
 const cleanWord = (w: string) => w.toLowerCase().replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').trim();
+
+export const getDictionaryStats = () => ({
+  ruCount: COMMON_WORDS_RU.size,
+  enCount: COMMON_WORDS_EN.size,
+  ruLoaded: COMMON_WORDS_RU.size > 200, // Threshold above initial fallback (96 words)
+  enLoaded: COMMON_WORDS_EN.size > 200   // Threshold above initial fallback (96 words)
+});
 
 /**
  * Loads external dictionary files from the /public/dictionaries folder.

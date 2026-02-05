@@ -67,6 +67,13 @@ app.whenReady().then(() => {
     if (win) win.close();
   });
 
+  ipcMain.on('window-toggle-always-on-top', (event, flag) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win) {
+        win.setAlwaysOnTop(flag, 'screen-saver');
+    }
+  });
+
   createWindow();
 
   app.on('activate', () => {

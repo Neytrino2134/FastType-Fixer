@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { HelpCircle, Keyboard, Mic, Zap, X, Palette } from 'lucide-react';
 import { Language } from '../types';
 import { getTranslation } from '../utils/i18n';
@@ -12,19 +12,42 @@ interface HelpModalProps {
 
 export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose, language }) => {
   const t = getTranslation(language);
+  const [isVisible, setIsVisible] = useState(false);
 
-  if (!isOpen) return null;
+  // Sync visibility for animation readiness
+  useEffect(() => {
+    if (isOpen) setIsVisible(true);
+    else {
+        const timer = setTimeout(() => setIsVisible(false), 300); // Match duration
+        return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
+
+  // If completely closed and animation finished, we can unmount or keep hidden
+  // But to keep it simple with transitions, we keep it mounted but hidden via CSS
+  // However, for performance, if it's "closed", we can return null after timeout?
+  // Let's keep it mounted to ensure smooth reverse animation, using pointer-events-none.
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div 
+        className={`fixed inset-0 z-[60] flex items-center justify-center p-4 transition-all duration-300 ${
+            isOpen ? 'opacity-100 visible' : 'opacity-0 invisible pointer-events-none'
+        }`}
+    >
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
+        className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm transition-opacity duration-300"
         onClick={onClose}
       />
 
       {/* Modal Content */}
-      <div className="relative bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 fade-in duration-300">
+      <div 
+        className={`
+            relative bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden 
+            transform transition-all duration-300 ease-out
+            ${isOpen ? 'scale-100 translate-y-0 opacity-100' : 'scale-95 translate-y-4 opacity-0'}
+        `}
+      >
         
         <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-800/50">
           <div className="flex items-center gap-2">

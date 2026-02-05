@@ -72,7 +72,7 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   const maxRmsInCurrentSliceRef = useRef<number>(0);
 
   // Constants
-  const SLICE_TIMEOUT = 1000; // 1.0s of silence triggers a slice/send (More instant)
+  const SLICE_TIMEOUT = 1000; // 1.0s of silence triggers a slice/send
   const AUTO_STOP_TIMEOUT = 5000; // 5.0s of silence stops recording
 
   // Cleanup
@@ -96,11 +96,12 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
     setAutoStopCountdown(null);
   };
 
-  const calculateRMS = (dataArray: Uint8Array) => {
+  // Improved RMS Calculation for Time Domain Data
+  const calculateTimeDomainRMS = (dataArray: Uint8Array) => {
     let sum = 0;
-    // dataArray is 0-255 (128 is silence)
+    // Time Domain: Values are 0-255 where 128 is silence (center)
     for (let i = 0; i < dataArray.length; i++) {
-      const x = (dataArray[i] - 128) / 128.0;
+      const x = (dataArray[i] - 128) / 128.0; // Normalize to -1 to 1
       sum += x * x;
     }
     return Math.sqrt(sum / dataArray.length);
@@ -110,7 +111,6 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   const trimAndEncodeWav = async (originalBlob: Blob): Promise<Blob | null> => {
     try {
         const arrayBuffer = await originalBlob.arrayBuffer();
-        // We need a temporary AudioContext to decode
         const tempCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
         
@@ -118,8 +118,8 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
         const sampleRate = audioBuffer.sampleRate;
         
         // Threshold for trimming (normalized 0.0-1.0)
-        // Using a dynamic threshold based on the setting, but keeping it low for safety
-        const trimThreshold = Math.max(0.01, (silenceThresholdSetting / 1000) * 0.5); 
+        // Scaled to match the VAD logic: 0-100 setting maps to roughly 0.01 - 0.2 amplitude
+        const trimThreshold = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
         
         let start = 0;
         let end = channelData.length;
@@ -173,42 +173,43 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
 
     } catch (e) {
         console.error("Audio trimming failed", e);
-        return originalBlob; // Fallback to original if trim fails
+        return originalBlob;
     }
   };
 
   const processChunk = async (blob: Blob) => {
     if (blob.size === 0) return;
 
-    // Report status: Analyzing/Listening (chunk sent for processing)
     if (onStatusCallbackRef.current) {
         onStatusCallbackRef.current('analyzing_listening');
     }
 
-    // DEBUG: Log chunk info
-    console.log(`Processing raw chunk: Size=${blob.size}, MaxRMS=${maxRmsInCurrentSliceRef.current.toFixed(4)}`);
+    // VAD Check: If the loudests part of this chunk was still quieter than threshold, discard it completely
+    // This prevents sending files that are just "loud silence" (breathing, fans)
+    const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
+    if (maxRmsInCurrentSliceRef.current < thresholdRMS) {
+         console.log(`Chunk discarded by VAD MaxRMS check. Peak: ${maxRmsInCurrentSliceRef.current.toFixed(4)} < Thr: ${thresholdRMS.toFixed(4)}`);
+         if (onStatusCallbackRef.current && isRecording) {
+            onStatusCallbackRef.current('listening');
+         }
+         return;
+    }
 
     try {
-      // 1. Trim Silence and Convert to WAV
       const optimizedBlob = await trimAndEncodeWav(blob);
       
       if (!optimizedBlob) {
-          console.log("Chunk discarded: Silence only.");
-          // If silent, revert back to listening
           if (onStatusCallbackRef.current && isRecording) {
               onStatusCallbackRef.current('listening');
           }
           return;
       }
 
-      console.log(`Processed chunk: Original Size=${blob.size}, Trimmed Size=${optimizedBlob.size}`);
-
       const reader = new FileReader();
       reader.onloadend = () => {
         const result = reader.result as string;
         if (result && onChunkCallbackRef.current) {
           const base64 = result.split(',')[1];
-          // Always send as audio/wav after trimming
           onChunkCallbackRef.current(base64, 'audio/wav');
         }
       };
@@ -219,7 +220,6 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   };
 
   const startMediaRecorder = (stream: MediaStream) => {
-    // Prefer webm/opus for efficient raw capture, we convert to WAV later
     let options: MediaRecorderOptions | undefined = undefined;
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         options = { mimeType: 'audio/webm;codecs=opus' };
@@ -229,10 +229,8 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
     mediaRecorderRef.current = mediaRecorder;
     audioChunksRef.current = [];
     
-    // Reset VAD for new slice
     maxRmsInCurrentSliceRef.current = 0;
     
-    // Status: Listening
     if (onStatusCallbackRef.current) onStatusCallbackRef.current('listening');
 
     mediaRecorder.ondataavailable = (event) => {
@@ -242,10 +240,9 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
     };
 
     mediaRecorder.onstop = () => {
-      // Assemble the blob from chunks
       const mimeType = mediaRecorder.mimeType || 'audio/webm';
       const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-      audioChunksRef.current = []; // Reset chunks
+      audioChunksRef.current = [];
       processChunk(audioBlob);
     };
 
@@ -257,7 +254,7 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       onStatusUpdate?: (status: VisualizerStatus) => void
   ): Promise<boolean> => {
     try {
-      cleanup(); // Ensure clean state
+      cleanup();
       
       onChunkCallbackRef.current = onChunk;
       onStatusCallbackRef.current = onStatusUpdate || null;
@@ -265,15 +262,12 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      // 1. Setup Audio Analysis (Visualizer + VAD)
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       audioContextRef.current = audioCtx;
       
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256; 
-      analyser.smoothingTimeConstant = 0.8; 
-      analyser.minDecibels = -90;
-      analyser.maxDecibels = -10;
+      analyser.fftSize = 512; // Increased for better time-domain resolution
+      analyser.smoothingTimeConstant = 0.3; // Faster response for VAD
       
       analyserRef.current = analyser;
       
@@ -281,38 +275,45 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       sourceRef.current = source;
       source.connect(analyser);
 
+      // Data for Visualization (Frequency)
       const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      visualizerDataRef.current = dataArray;
+      const freqDataArray = new Uint8Array(bufferLength);
+      visualizerDataRef.current = freqDataArray;
 
-      // 2. Setup Recording
+      // Data for VAD (Time Domain - Volume)
+      const timeDataArray = new Uint8Array(bufferLength);
+
       startMediaRecorder(stream);
       setIsRecording(true);
-      silenceStartRef.current = Date.now(); // Initialize
+      silenceStartRef.current = Date.now();
 
-      // 3. Start Analysis Loop
       checkSilenceIntervalRef.current = setInterval(() => {
         if (!analyserRef.current || !mediaRecorderRef.current) return;
 
-        analyserRef.current.getByteTimeDomainData(dataArray);
-        const rms = calculateRMS(dataArray);
+        // 1. Get Frequency Data for UI Visualizer
+        analyserRef.current.getByteFrequencyData(freqDataArray);
+
+        // 2. Get Time Domain Data for Accurate Volume/VAD
+        analyserRef.current.getByteTimeDomainData(timeDataArray);
         
-        // Update the peak RMS for the current recording slice
+        // Calculate true volume
+        const rms = calculateTimeDomainRMS(timeDataArray);
+        
         if (rms > maxRmsInCurrentSliceRef.current) {
             maxRmsInCurrentSliceRef.current = rms;
         }
         
-        // Map 0-100 setting to 0.00 to 0.1 RMS range
-        const thresholdRMS = Math.max(0.005, silenceThresholdSetting / 1000);
+        // Threshold Logic:
+        // Setting 1-100 maps to 0.01 - 0.2 RMS.
+        // 0.01 is barely audible (breathing). 0.2 is quite loud speaking.
+        const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
 
         if (rms > thresholdRMS) {
-          // User is speaking
+          // SPEECH DETECTED
           silenceStartRef.current = null;
           setAutoStopCountdown(null);
-          // If we were editing, back to listening
-          // (Can't check previous state easily here, but safe to re-assert)
         } else {
-          // Silence detected
+          // SILENCE DETECTED
           if (silenceStartRef.current === null) {
             silenceStartRef.current = Date.now();
           } else {
@@ -320,37 +321,29 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
             const silenceDuration = now - silenceStartRef.current;
             const remaining = Math.max(0, AUTO_STOP_TIMEOUT - silenceDuration);
 
-            // Calculate Countdown
             const secondsLeft = Math.ceil(remaining / 1000);
-            
-            // Show countdown if within 5 seconds
             if (secondsLeft <= 5 && secondsLeft > 0) {
                 setAutoStopCountdown(prev => prev !== secondsLeft ? secondsLeft : prev);
             } else if (secondsLeft <= 0) {
                 setAutoStopCountdown(0);
             }
 
-            // CHECK 1: Auto-Stop after 5 seconds
             if (silenceDuration > AUTO_STOP_TIMEOUT) {
               stopRecording();
               return;
             }
 
-            // CHECK 2: Slice after 1.0 seconds (if not already slicing)
             if (silenceDuration > SLICE_TIMEOUT && !isSlicingRef.current) {
                 isSlicingRef.current = true;
                 
-                // Report status: Editing/Listening (Trimming/Cutting)
                 if (onStatusCallbackRef.current) {
                     onStatusCallbackRef.current('editing');
                 }
 
-                // Stop current recorder (triggers onstop -> processChunk)
                 if (mediaRecorderRef.current.state === 'recording') {
                    mediaRecorderRef.current.stop();
                 }
 
-                // Restart recorder immediately for next sentence
                 if (streamRef.current && streamRef.current.active) {
                     startMediaRecorder(streamRef.current);
                 }
@@ -359,7 +352,7 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
             }
           }
         }
-      }, 100);
+      }, 50); // Check every 50ms for more responsive VAD
 
       return true;
     } catch (error) {
@@ -377,7 +370,6 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       mediaRecorderRef.current.stop();
     }
 
-    // Give it a moment to process the last chunk before killing the stream
     setTimeout(() => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());

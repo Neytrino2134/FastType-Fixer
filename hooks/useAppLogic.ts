@@ -17,21 +17,28 @@ export const useAppLogic = () => {
   const [currentTab, setCurrentTab] = useState<Tab>('editor'); 
   const [language, setLanguage] = useState<Language>('ru');
   const [status, setStatus] = useState<ProcessingStatus>('idle');
-  const [isGrammarChecking, setIsGrammarChecking] = useState(false); // NEW: Separate grammar status
+  const [isGrammarChecking, setIsGrammarChecking] = useState(false); 
   const [stats, setStats] = useState({ corrections: 0 });
   const [resetSignal, setResetSignal] = useState(0); 
+  const [isPinned, setIsPinned] = useState(false); 
   
   // Configuration State
   const [settings, setSettings] = useState<CorrectionSettings>({
     enabled: true,
     debounceMs: 700,
     finalizationTimeout: 5000,
+    miniScripts: true, 
     fixTypos: true,
     fixPunctuation: true,
     clipboardEnabled: true,
     silenceThreshold: 15,
     audioModel: 'gemini-2.5-flash',
-    economyMode: true
+    economyMode: true,
+    // Visualizer Defaults
+    visualizerLowCut: 2,   // Cut extremely low frequencies
+    visualizerHighCut: 60, // Cut extremely high noise (out of 128 bins)
+    visualizerAmp: 1.0,     // Default amplitude multiplier
+    visualizerStyle: 'classic' // Default style
   });
 
   // UI State
@@ -99,6 +106,9 @@ export const useAppLogic = () => {
   const handleStartApp = useCallback((key: string) => {
     localStorage.setItem('gemini_api_key', key);
     setGeminiApiKey(key);
+    // FIX: Force reset tab to editor to prevent "sliding" effect if user left on another tab
+    setCurrentTab('editor'); 
+    setStatus('idle'); // Ensure status is clean
     setAppState('app');
   }, []);
 
@@ -124,6 +134,29 @@ export const useAppLogic = () => {
     localStorage.removeItem('fasttype_lock_code');
     setLockCode('');
     setIsLocked(false);
+  }, []);
+
+  // NEW: Handle Full Data Wipe
+  const handleWipeData = useCallback(() => {
+    // 1. Remove Lock
+    localStorage.removeItem('fasttype_lock_code');
+    setLockCode('');
+    setIsLocked(false);
+
+    // 2. Clear Clipboard
+    localStorage.removeItem('fasttype_clipboard');
+    setClipboardHistory([]);
+
+    // 3. Clear Stats
+    setStats({ corrections: 0 });
+
+    // 4. Force Unlock logic
+    setIsLocked(false);
+    
+    // Note: Editor history wipe happens in App.tsx via Ref, but we clear LS key here just in case
+    localStorage.removeItem('fasttype_editor_state_v2');
+
+    return true;
   }, []);
 
   const handleUnlock = useCallback((input: string) => {
@@ -205,6 +238,22 @@ export const useAppLogic = () => {
     setResetSignal(prev => prev + 1);
   }, []);
 
+  const handleToggleProcessing = useCallback(() => {
+    setSettings(prev => {
+        const nextState = !prev.enabled;
+        setStatus(nextState ? 'idle' : 'paused'); 
+        return { ...prev, enabled: nextState };
+    });
+  }, []);
+
+  const handleTogglePin = useCallback(() => {
+    const nextState = !isPinned;
+    setIsPinned(nextState);
+    if (ipcRenderer) {
+        ipcRenderer.send('window-toggle-always-on-top', nextState);
+    }
+  }, [isPinned, ipcRenderer]);
+
   const handleWindowControl = useCallback((action: 'minimize' | 'maximize' | 'close') => {
     if (ipcRenderer) {
       ipcRenderer.send(`window-${action}`);
@@ -269,7 +318,8 @@ export const useAppLogic = () => {
       resetSignal,
       isLocked,
       hasLock: !!lockCode,
-      currentTab 
+      currentTab,
+      isPinned 
     },
     actions: {
       setLanguage,
@@ -294,7 +344,10 @@ export const useAppLogic = () => {
       handleSetLock,
       handleRemoveLock,
       handleUnlock,
-      setCurrentTab
+      setCurrentTab,
+      handleToggleProcessing,
+      handleTogglePin,
+      handleWipeData // Export New Action
     }
   };
 };

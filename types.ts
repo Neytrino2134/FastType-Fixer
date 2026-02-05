@@ -3,13 +3,19 @@
 export interface CorrectionSettings {
   enabled: boolean;
   debounceMs: number;
-  finalizationTimeout: number; // New setting for idle timeout
+  finalizationTimeout: number; 
+  miniScripts: boolean; 
   fixTypos: boolean;
   fixPunctuation: boolean;
   clipboardEnabled: boolean;
-  silenceThreshold: number; // 0-100, maps to RMS sensitivity
+  silenceThreshold: number; 
   audioModel: 'gemini-2.5-flash' | 'gemini-2.5-pro';
-  economyMode: boolean; // Traffic saver mode
+  economyMode: boolean; 
+  // Visualizer Settings
+  visualizerLowCut: number; // 0-20
+  visualizerHighCut: number; // 20-128
+  visualizerAmp: number; // 0.5 - 3.0 multiplier
+  visualizerStyle: 'classic' | 'bars' | 'circular' | 'wave'; // New Setting
 }
 
 export interface ClipboardItem {
@@ -22,10 +28,14 @@ export interface HistorySnapshot {
   id: string;
   timestamp: number;
   text: string;
-  committedLength: number;
-  processedLength: number;
-  tags?: string[]; // Added tags for history categorization
-  finalizedSentences?: string[]; // New: Content based checkpoints
+  committedLength: number; 
+  correctedLength: number; 
+  checkedLength: number;   
+  processedLength: number; 
+  tags?: string[];
+  finalizedSentences?: string[];
+  aiFixedSegments?: string[]; 
+  dictatedSegments?: string[]; 
 }
 
 export interface EditorState {
@@ -35,7 +45,7 @@ export interface EditorState {
   correctionCount: number;
 }
 
-export type ProcessingStatus = 'idle' | 'typing' | 'thinking' | 'correcting' | 'grammar_check' | 'done' | 'enhancing' | 'recording' | 'transcribing' | 'paused';
+export type ProcessingStatus = 'idle' | 'typing' | 'dict_check' | 'ai_fixing' | 'ai_finalizing' | 'done' | 'recording' | 'transcribing' | 'paused' | 'error' | 'enhancing' | 'script_fix';
 
 export type VisualizerStatus = 'idle' | 'listening' | 'editing' | 'analyzing_listening' | 'analyzing' | 'done';
 
@@ -45,7 +55,7 @@ export type AppState = 'loading' | 'welcome' | 'app';
 
 export type NotificationType = 'success' | 'error' | 'info' | 'warning';
 
-export type Tab = 'editor' | 'chat';
+export type Tab = 'editor' | 'chat' | 'translator';
 
 export interface Notification {
   id: string;
@@ -57,7 +67,7 @@ export interface Notification {
 export interface Attachment {
   type: 'image';
   mimeType: string;
-  data: string; // base64 string
+  data: string; 
   name?: string;
 }
 
@@ -66,8 +76,8 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
-  isTyping?: boolean; // For streaming effect
-  attachment?: Attachment; // Added attachment support
+  isTyping?: boolean; 
+  attachment?: Attachment; 
 }
 
 declare global {

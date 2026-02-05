@@ -1,0 +1,27 @@
+welcome_step_1_ru.wav
+welcome_step_2_ru.wav
+welcome_step_3_ru.wav
+welcome_step_4_ru.wav
+welcome_step_1_en.wav
+welcome_step_2_en.wav
+welcome_step_3_en.wav
+welcome_step_4_en.wav
+
+guide_step_0_ru.wav
+guide_step_1_ru.wav
+guide_step_2_ru.wav
+guide_step_3_ru.wav
+guide_step_4_ru.wav
+guide_step_5_ru.wav
+guide_step_6_ru.wav
+guide_step_0_en.wav
+guide_step_1_en.wav
+guide_step_2_en.wav
+guide_step_3_en.wav
+guide_step_4_en.wav
+guide_step_5_en.wav
+guide_step_6_en.wav
+
+Place your .wav files in this directory.
+The application expects files to be named exactly as above.
+Vite and Electron will automatically include this folder in the build.

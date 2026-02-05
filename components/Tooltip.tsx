@@ -21,16 +21,16 @@ export const Tooltip: React.FC<TooltipProps> = ({
   };
 
   return (
-    <div className="relative flex items-center group z-50">
+    <div className="relative flex items-center group z-[100]">
       {children}
       
       <div 
         className={`
-          absolute pointer-events-none z-[100] px-2.5 py-1.5 
-          bg-slate-800 border border-slate-700 rounded-lg shadow-xl 
-          whitespace-nowrap text-[10px] font-medium text-slate-200 tracking-wide
-          opacity-0 group-hover:opacity-100 
-          select-none
+          absolute pointer-events-none z-[9999] px-3 py-2 
+          bg-slate-800/95 border border-slate-700/80 rounded-lg shadow-2xl backdrop-blur-md
+          whitespace-pre-wrap text-[10px] font-medium text-slate-200 tracking-wide
+          opacity-0 group-hover:opacity-100 transition-opacity duration-200
+          select-none w-max max-w-[200px] text-center
           ${positionClasses[side]}
         `}
       >

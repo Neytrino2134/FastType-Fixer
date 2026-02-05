@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+
+
+import React, { useState, useEffect } from 'react';
 import { ClipboardItem, Language } from '../types';
 import { getTranslation } from '../utils/i18n';
 import { ClipboardList, Copy, Trash2, Search, X, Power, PowerOff, Check } from 'lucide-react';
@@ -25,8 +27,16 @@ export const ClipboardHistory: React.FC<ClipboardHistoryProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isReady, setIsReady] = useState(false); // To prevent slide-out animation on mount
+
   const t = getTranslation(language);
   const { addNotification } = useNotification();
+
+  // Prevent transition on initial mount
+  useEffect(() => {
+     const timer = setTimeout(() => setIsReady(true), 100);
+     return () => clearTimeout(timer);
+  }, []);
 
   const filteredItems = items.filter(item => 
     item.text.toLowerCase().includes(searchTerm.toLowerCase())
@@ -91,10 +101,15 @@ export const ClipboardHistory: React.FC<ClipboardHistoryProps> = ({
     }).format(new Date(timestamp));
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="absolute top-0 right-0 w-80 h-full bg-slate-900 border-l border-slate-800 shadow-2xl z-40 transform transition-transform duration-300 flex flex-col no-drag animate-in slide-in-from-right">
+    <div 
+        className={`
+            absolute top-0 right-0 w-80 h-full bg-slate-900 border-l border-slate-800 shadow-2xl z-40 
+            flex flex-col no-drag 
+            ${isReady ? 'transition-transform duration-300 ease-in-out' : ''} 
+            ${isOpen ? 'translate-x-0' : 'translate-x-full invisible pointer-events-none'}
+        `}
+    >
       
       {/* Header */}
       <div className="p-4 border-b border-slate-800 flex items-center justify-between shrink-0">

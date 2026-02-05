@@ -4,6 +4,7 @@ interface UseEditorHotkeysProps {
   undo: () => boolean;
   redo: () => boolean;
   toggleRecording: () => void;
+  toggleProcessing: () => void;
   onStatusChange: (status: any) => void;
   onPauseProcessing: () => void;
 }
@@ -12,6 +13,7 @@ export const useEditorHotkeys = ({
   undo,
   redo,
   toggleRecording,
+  toggleProcessing,
   onStatusChange,
   onPauseProcessing
 }: UseEditorHotkeysProps) => {
@@ -42,7 +44,7 @@ export const useEditorHotkeys = ({
       }
   }, [handleUndo, handleRedo]);
 
-  // Global Hotkey for Recording (Alt+R)
+  // Global Hotkey for Recording (Alt+R) and Pause (Alt+A)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
         // Alt+R
@@ -50,11 +52,16 @@ export const useEditorHotkeys = ({
             e.preventDefault();
             toggleRecording();
         }
+        // Alt+A
+        if (e.altKey && e.code === 'KeyA') {
+            e.preventDefault();
+            toggleProcessing();
+        }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [toggleRecording]);
+  }, [toggleRecording, toggleProcessing]);
 
   return {
     handleUndo,

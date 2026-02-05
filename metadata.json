@@ -1,5 +1,5 @@
 {
-  "name": "FastType AI Fixer v0.1.2",
+  "name": "FastType AI Fixer v0.1.3",
   "description": "An intelligent typing assistant for fast typists. It uses Gemini 3 Flash to correct typos, transposed letters, and spacing errors in real-time as you pause to think.",
   "requestFramePermissions": [
     "microphone"

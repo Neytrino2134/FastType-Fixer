@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <!-- Content Security Policy for Electron safety -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.tailwindcss.com https://fonts.googleapis.com https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; connect-src 'self' https://generativelanguage.googleapis.com ws://localhost:*; img-src 'self' data:; media-src 'self' blob: data:;">
     <title>FastType AI Fixer</title>
@@ -10,11 +10,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
-      body { font-family: 'Inter', sans-serif; }
+      body { 
+        font-family: 'Inter', sans-serif; 
+        touch-action: manipulation; /* Improves touch response */
+        -webkit-tap-highlight-color: transparent;
+      }
       
       /* Custom scrollbar for better aesthetics - Applied via class for synchronization */
       .custom-scrollbar::-webkit-scrollbar {
         width: 8px;
+        height: 8px; /* For horizontal scroll */
       }
       .custom-scrollbar::-webkit-scrollbar-track {
         background: transparent;
@@ -32,7 +37,7 @@
         -webkit-app-region: drag;
         user-select: none;
       }
-      .no-drag, button {
+      .no-drag, button, input, textarea {
         -webkit-app-region: no-drag;
       }
 
@@ -77,9 +82,9 @@
   }
 }
 </script>
-  <script type="module" crossorigin src="./assets/index-cd1-U71O.js"></script>
+  <script type="module" crossorigin src="./assets/index-DotSePtq.js"></script>
 </head>
-  <body class="bg-slate-950 text-slate-200 h-screen overflow-hidden">
+  <body class="bg-slate-950 text-slate-200 h-screen overflow-hidden supports-[height:100dvh]:h-[100dvh]">
     <div id="root" class="h-full"></div>
 </body>
 </html>

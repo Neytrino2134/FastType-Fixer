@@ -123,6 +123,7 @@ export const UI = {
     
     setupTitle: "Настройка доступа",
     setupDesc: "Введите ваш API ключ Google Gemini для начала работы.",
+    securityNote: "Приложение разработано с использованием ИИ. Мы гарантируем конфиденциальность: данные не передаются третьим лицам, отсутствуют скрытые механизмы фишинга или трекинга.",
     
     apiKeyLabel: "ВВЕДИТЕ API KEY ЗДЕСЬ",
     apiKeyTooltip: "Ваш ключ хранится локально только в вашем браузере/приложении.",
@@ -346,6 +347,7 @@ export const UI = {
     feature3Desc: "Powered by Gemini 3 Flash.",
     setupTitle: "Access Setup",
     setupDesc: "Enter your Google Gemini API key to get started.",
+    securityNote: "Developed with AI assistance. We guarantee privacy: data is not shared with third parties, and there are no hidden phishing or tracking mechanisms.",
     
     apiKeyLabel: "ENTER API KEY HERE",
     apiKeyTooltip: "Your key is stored locally only in your browser/app.",

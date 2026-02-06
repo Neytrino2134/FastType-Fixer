@@ -13,39 +13,6 @@ interface AudioRecorderHook {
   autoStopCountdown: number | null; // 5, 4, 3, 2, 1 or null
 }
 
-// Helper to write WAV header
-const writeWavHeader = (sampleRate: number, numChannels: number, dataLength: number) => {
-    const buffer = new ArrayBuffer(44);
-    const view = new DataView(buffer);
-
-    // RIFF chunk descriptor
-    writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + dataLength, true);
-    writeString(view, 8, 'WAVE');
-
-    // fmt sub-chunk
-    writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-    view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
-    view.setUint16(22, numChannels, true); // NumChannels
-    view.setUint32(24, sampleRate, true); // SampleRate
-    view.setUint32(28, sampleRate * numChannels * 2, true); // ByteRate
-    view.setUint16(32, numChannels * 2, true); // BlockAlign
-    view.setUint16(34, 16, true); // BitsPerSample
-
-    // data sub-chunk
-    writeString(view, 36, 'data');
-    view.setUint32(40, dataLength, true);
-
-    return buffer;
-};
-
-const writeString = (view: DataView, offset: number, string: string) => {
-    for (let i = 0; i < string.length; i++) {
-        view.setUint8(offset + i, string.charCodeAt(i));
-    }
-};
-
 export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRecorderHook => {
   const [isRecording, setIsRecording] = useState(false);
   const [autoStopCountdown, setAutoStopCountdown] = useState<number | null>(null);
@@ -72,8 +39,8 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   const maxRmsInCurrentSliceRef = useRef<number>(0);
 
   // Constants
-  const SLICE_TIMEOUT = 1000; // 1.0s of silence triggers a slice/send
-  const AUTO_STOP_TIMEOUT = 5000; // 5.0s of silence stops recording
+  const SLICE_TIMEOUT = 1200; // Increased to 1.2s to prevent cutting mid-sentence
+  const AUTO_STOP_TIMEOUT = 6000; // 6.0s of silence stops recording
 
   // Cleanup
   useEffect(() => {
@@ -107,76 +74,6 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
     return Math.sqrt(sum / dataArray.length);
   };
 
-  // Helper: Decode, Trim, and Re-encode to WAV
-  const trimAndEncodeWav = async (originalBlob: Blob): Promise<Blob | null> => {
-    try {
-        const arrayBuffer = await originalBlob.arrayBuffer();
-        const tempCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const audioBuffer = await tempCtx.decodeAudioData(arrayBuffer);
-        
-        const channelData = audioBuffer.getChannelData(0); // Mono check
-        const sampleRate = audioBuffer.sampleRate;
-        
-        // Threshold for trimming (normalized 0.0-1.0)
-        // Scaled to match the VAD logic: 0-100 setting maps to roughly 0.01 - 0.2 amplitude
-        const trimThreshold = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
-        
-        let start = 0;
-        let end = channelData.length;
-
-        // Find Start
-        for (let i = 0; i < channelData.length; i++) {
-            if (Math.abs(channelData[i]) > trimThreshold) {
-                start = i;
-                break;
-            }
-        }
-
-        // Find End
-        for (let i = channelData.length - 1; i >= 0; i--) {
-            if (Math.abs(channelData[i]) > trimThreshold) {
-                end = i;
-                break;
-            }
-        }
-
-        // Add padding (0.2s)
-        const padding = Math.floor(0.2 * sampleRate);
-        start = Math.max(0, start - padding);
-        end = Math.min(channelData.length, end + padding);
-
-        // If the entire clip is silence
-        if (end <= start) {
-            tempCtx.close();
-            return null;
-        }
-
-        // Extract Trimmed Data
-        const trimmedLength = end - start;
-        const trimmedData = channelData.slice(start, end);
-
-        // Convert Float32 to Int16 for WAV
-        const wavBuffer = new ArrayBuffer(trimmedLength * 2);
-        const view = new DataView(wavBuffer);
-        for (let i = 0; i < trimmedLength; i++) {
-            let s = Math.max(-1, Math.min(1, trimmedData[i]));
-            // scale to 16-bit signed integer
-            view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-        }
-
-        // Create WAV Blob
-        const header = writeWavHeader(sampleRate, 1, trimmedLength * 2);
-        const wavBlob = new Blob([header, wavBuffer], { type: 'audio/wav' });
-        
-        tempCtx.close();
-        return wavBlob;
-
-    } catch (e) {
-        console.error("Audio trimming failed", e);
-        return originalBlob;
-    }
-  };
-
   const processChunk = async (blob: Blob) => {
     if (blob.size === 0) return;
 
@@ -184,36 +81,26 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
         onStatusCallbackRef.current('analyzing_listening');
     }
 
-    // VAD Check: If the loudests part of this chunk was still quieter than threshold, discard it completely
-    // This prevents sending files that are just "loud silence" (breathing, fans)
-    const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
-    if (maxRmsInCurrentSliceRef.current < thresholdRMS) {
-         console.log(`Chunk discarded by VAD MaxRMS check. Peak: ${maxRmsInCurrentSliceRef.current.toFixed(4)} < Thr: ${thresholdRMS.toFixed(4)}`);
-         if (onStatusCallbackRef.current && isRecording) {
-            onStatusCallbackRef.current('listening');
-         }
-         return;
-    }
+    // REMOVED: Strict VAD Check inside processChunk.
+    // We trust that if a chunk is produced (via manual stop or auto-slice), 
+    // it should be sent to Gemini. Gemini handles silence gracefully (returns empty string).
+    // This prevents the "nothing happens" issue when the user speaks quietly or briefly.
 
     try {
-      const optimizedBlob = await trimAndEncodeWav(blob);
-      
-      if (!optimizedBlob) {
-          if (onStatusCallbackRef.current && isRecording) {
-              onStatusCallbackRef.current('listening');
-          }
-          return;
-      }
-
+      // Direct Base64 conversion without re-encoding to WAV.
+      // Gemini supports webm/opus natively and it handles silence well.
       const reader = new FileReader();
       reader.onloadend = () => {
         const result = reader.result as string;
         if (result && onChunkCallbackRef.current) {
           const base64 = result.split(',')[1];
-          onChunkCallbackRef.current(base64, 'audio/wav');
+          // Get the actual MIME type from the blob/recorder
+          const actualMimeType = blob.type || 'audio/webm';
+          console.log(`Sending audio chunk: ${Math.round(blob.size / 1024)}KB, MIME: ${actualMimeType}`);
+          onChunkCallbackRef.current(base64, actualMimeType);
         }
       };
-      reader.readAsDataURL(optimizedBlob);
+      reader.readAsDataURL(blob);
     } catch (e) {
       console.error("Chunk processing failed", e);
     }
@@ -221,8 +108,14 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
 
   const startMediaRecorder = (stream: MediaStream) => {
     let options: MediaRecorderOptions | undefined = undefined;
+    
+    // Prefer efficient codecs supported by Gemini
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         options = { mimeType: 'audio/webm;codecs=opus' };
+    } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        options = { mimeType: 'audio/webm' };
+    } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+        options = { mimeType: 'audio/mp4' }; // Safari support
     }
 
     const mediaRecorder = new MediaRecorder(stream, options);
@@ -303,10 +196,8 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
             maxRmsInCurrentSliceRef.current = rms;
         }
         
-        // Threshold Logic:
-        // Setting 1-100 maps to 0.01 - 0.2 RMS.
-        // 0.01 is barely audible (breathing). 0.2 is quite loud speaking.
-        const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
+        // Threshold Logic
+        const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.15);
 
         if (rms > thresholdRMS) {
           // SPEECH DETECTED
@@ -370,6 +261,7 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       mediaRecorderRef.current.stop();
     }
 
+    // Wait slightly to allow onstop to fire
     setTimeout(() => {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach(track => track.stop());

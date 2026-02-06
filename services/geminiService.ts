@@ -166,6 +166,14 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
   const prompts = getPrompts(language);
 
   try {
+    // Basic validation
+    if (!base64Audio || base64Audio.length < 100) {
+        console.warn("Audio chunk too small, skipping.");
+        return "";
+    }
+
+    console.log(`Sending to Gemini [${modelName}]: ${mimeType}, size: ${Math.round(base64Audio.length/1024)}KB`);
+
     const response = await ai.models.generateContent({
       model: modelName,
       contents: {
@@ -185,7 +193,8 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
     });
 
     let result = response.text || "";
-    
+    console.log("Raw Transcription:", result);
+
     // 1. Clean Hallucinations immediately
     result = cleanAudioHallucinations(result, language);
     
@@ -194,6 +203,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
 
     const lower = result.toLowerCase().trim();
     
+    // Filter common hallucinations where model describes its own job
     if (
         lower.includes("эксперт по транскрибации") || 
         lower.includes("expert transcriber") ||
@@ -207,6 +217,7 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
     return result;
   } catch (error) {
     console.error("Gemini Transcription Error:", error);
-    throw error;
+    // Return empty string on error so the app doesn't crash, just ignores the chunk
+    return "";
   }
 };

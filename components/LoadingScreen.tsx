@@ -1,9 +1,20 @@
+
 import React from 'react';
 import { Sparkles } from 'lucide-react';
 
-export const LoadingScreen: React.FC = () => {
+interface LoadingScreenProps {
+  isExiting?: boolean;
+}
+
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ isExiting = false }) => {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-slate-200 h-screen w-screen titlebar-drag-region">
+    <div 
+      className={`
+        fixed inset-0 z-[200] flex flex-col items-center justify-center bg-slate-950 text-slate-200 h-screen w-screen titlebar-drag-region
+        transition-all duration-1000 ease-[cubic-bezier(0.2,0.8,0.2,1)]
+        ${isExiting ? 'opacity-0 scale-110 blur-xl pointer-events-none' : 'opacity-100 scale-100 blur-0'}
+      `}
+    >
       <div className="relative mb-8">
         {/* Pulsing background effect */}
         <div className="absolute inset-0 bg-indigo-500 blur-2xl opacity-20 animate-pulse rounded-full"></div>

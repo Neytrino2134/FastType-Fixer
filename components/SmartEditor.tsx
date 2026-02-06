@@ -3,7 +3,7 @@ import React, { useEffect, useState, forwardRef, useImperativeHandle, useRef } f
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
 import { useSmartEditor } from '../hooks/useSmartEditor';
 import { EditorSurface } from './Editor/EditorSurface';
-import { EditorToolbar } from './Editor/EditorToolbar';
+import { EditorToolbar, EditorToolbarHandle } from './Editor/EditorToolbar';
 import { HistoryPanel } from './HistoryPanel';
 import { useNotification } from '../contexts/NotificationContext';
 import { getTranslation } from '../utils/i18n';
@@ -21,15 +21,19 @@ interface SmartEditorProps {
   onToggleHistory: () => void;
   onPauseProcessing: () => void;
   onToggleProcessing: () => void;
-  onInteraction: () => void; // New prop for closing overlays
-  onHistoryUpdate: () => void; // NEW: Notify parent of history change
+  onInteraction: () => void; 
+  onHistoryUpdate: () => void; 
+  showClipboard: boolean;
+  onToggleClipboard: () => void;
 }
 
 export interface SmartEditorHandle {
     clear: () => void;
     copy: () => void;
     paste: () => Promise<void>;
-    fullWipe: () => void; // NEW: Method to wipe history and text
+    cut: () => Promise<void>; 
+    clearAndPaste: () => Promise<void>; 
+    fullWipe: () => void; 
 }
 
 export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((props, ref) => {
@@ -38,10 +42,12 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
     committedLength,
     correctedLength,
     checkedLength,
+    checkingLength, 
     processedLength, 
     finalizedSentences,
     aiFixedSegments,
-    dictatedSegments, // NEW
+    dictatedSegments,
+    unknownSegments, 
     textareaRef,
     backdropRef,
     isBusy,
@@ -58,15 +64,18 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
     visualizerDataRef,
     autoStopCountdown,
     visualizerStatus,
-    isAnalyzing, // NEW
-    isRecording, // NEW
+    isAnalyzing,
+    isRecording,
     history,
     historyIndex,
     handleHistoryJump,
-    lastHistoryUpdate, // NEW
-    clearHistory, // NEW
-    setFullText, // NEW
-    handleAudioFile // NEW
+    lastHistoryUpdate,
+    clearHistory,
+    setFullText,
+    handleMediaFile, 
+    toggleDevRecording,
+    isDevRecording,
+    processingOverlay // Received from hook
   } = useSmartEditor(props);
 
   const { addNotification } = useNotification();
@@ -75,6 +84,9 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
   // Resume Animation State
   const [showResumeAnim, setShowResumeAnim] = useState(false);
   const isFirstRender = useRef(true);
+  
+  // Reference to EditorToolbar to control file staging
+  const toolbarRef = useRef<EditorToolbarHandle>(null);
 
   // Helper: Safe Clipboard Write (Electron + Web)
   const safeWriteClipboard = async (text: string) => {
@@ -131,8 +143,41 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
               addNotification(props.language === 'ru' ? "Ошибка копирования" : "Copy failed", 'error');
           }
       },
+      cut: async () => {
+          if (!text) return;
+          try {
+              await safeWriteClipboard(text);
+              setFullText('');
+              addNotification(props.language === 'ru' ? "Вырезано!" : "Cut!", 'success');
+          } catch (e) {
+              addNotification(props.language === 'ru' ? "Ошибка" : "Error", 'error');
+          }
+      },
       paste: async () => {
           try {
+              // 1. Check for Images First (Modern Web API)
+              try {
+                  const clipboardItems = await navigator.clipboard.read();
+                  for (const item of clipboardItems) {
+                      const imageType = item.types.find(type => type.startsWith('image/'));
+                      if (imageType) {
+                          const blob = await item.getType(imageType);
+                          const file = new File([blob], `pasted_image_${Date.now()}.png`, { type: imageType });
+                          
+                          // Stage the file in the Toolbar
+                          if (toolbarRef.current) {
+                              toolbarRef.current.setFile(file);
+                              addNotification(props.language === 'ru' ? "Изображение вставлено" : "Image pasted", 'success');
+                          }
+                          return; // Stop here, do not paste text if image found
+                      }
+                  }
+              } catch (clipErr) {
+                  // Fallback: If clipboard read fail (permissions, or empty), proceed to text
+                  // console.debug("Clipboard image check failed or ignored", clipErr);
+              }
+
+              // 2. Text Paste Logic
               const clipText = await safeReadClipboard();
               if (!clipText) return;
               
@@ -147,8 +192,6 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
 
                   // Logic: If text exists and cursor is at strict 0 (default state/start),
                   // AND no range is selected, we assume "Append Mode" as requested.
-                  // If user purposefully wants to paste at start, they can select index 0,
-                  // but this heuristic satisfies the request "if cursor not placed -> append".
                   if (currentLen > 0 && start === 0 && end === 0) {
                       newText = text + clipText;
                       newCursorPos = newText.length;
@@ -174,6 +217,21 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
           } catch (e) {
               console.error("Paste failed", e);
               addNotification(props.language === 'ru' ? "Ошибка вставки (права доступа?)" : "Paste failed (permissions?)", 'error');
+          }
+      },
+      clearAndPaste: async () => {
+          try {
+              const clipText = await safeReadClipboard();
+              setFullText(clipText || '');
+              setTimeout(() => {
+                  if (textareaRef.current && clipText) {
+                      textareaRef.current.focus();
+                      textareaRef.current.setSelectionRange(clipText.length, clipText.length);
+                  }
+              }, 10);
+          } catch (e) {
+              console.error("Replace failed", e);
+              addNotification(props.language === 'ru' ? "Ошибка вставки" : "Paste Error", 'error');
           }
       },
       fullWipe: () => {
@@ -210,9 +268,11 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         committedLength={committedLength}
         correctedLength={correctedLength}
         checkedLength={checkedLength}
+        checkingLength={checkingLength}
         finalizedSentences={finalizedSentences}
         aiFixedSegments={aiFixedSegments}
         dictatedSegments={dictatedSegments}
+        unknownSegments={unknownSegments} 
         status={props.status}
         visualizerStatus={visualizerStatus}
         isAnalyzing={isAnalyzing}
@@ -228,14 +288,20 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         onInteraction={props.onInteraction}
         isPaused={!props.settings.enabled}
         showResumeAnimation={showResumeAnim}
-        // Pass new visualizer settings
         lowCut={props.settings.visualizerLowCut}
         highCut={props.settings.visualizerHighCut}
         amp={props.settings.visualizerAmp}
-        visualizerStyle={props.settings.visualizerStyle} // Pass the style to the surface
+        visualizerStyle={props.settings.visualizerStyle} 
+        silenceThreshold={props.settings.silenceThreshold}
+        visualizerNorm={props.settings.visualizerNorm}
+        visualizerGravity={props.settings.visualizerGravity}
+        visualizerMirror={props.settings.visualizerMirror}
+        onDropFile={handleMediaFile} 
+        processingOverlay={processingOverlay} // Pass to EditorSurface
       />
 
       <EditorToolbar
+        ref={toolbarRef}
         textLength={text.length}
         committedLength={committedLength}
         processedLength={correctedLength}
@@ -248,10 +314,15 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         onRedo={handleRedo}
         onRecord={toggleRecording}
         onEnhance={handleEnhance}
-        onFileUpload={handleAudioFile}
+        onFileUpload={handleMediaFile}
         autoStopCountdown={autoStopCountdown}
         onHistoryClick={props.onToggleHistory}
         isHistoryOpen={props.showHistory}
+        developerMode={props.settings.developerMode}
+        onDevRecord={toggleDevRecording}
+        isDevRecording={isDevRecording}
+        showClipboard={props.showClipboard}
+        onToggleClipboard={props.onToggleClipboard}
       />
 
       <HistoryPanel 

@@ -1,5 +1,4 @@
 
-
 import { Language } from '../types';
 
 export const PROMPTS = {
@@ -15,16 +14,18 @@ export const PROMPTS = {
 `,
     // STAGE 2: Blue/Purple -> Green (Finalization)
     finalize: `
-Ты — корректор. Твоя задача — исправить грамматику, орфографию и пунктуацию, а также цензурировать текст.
+Ты — корректор. Твоя задача — исправить грамматику, орфографию и пунктуацию, а также очистить текст от мата.
 СТРОГИЕ ПРАВИЛА:
 1. СОХРАНЯЙ ИСХОДНУЮ СТРУКТУРУ. Если текст состоит из команд или отрывистых фраз — оставь их такими. Не превращай список в рассказ.
 2. НЕ меняй смысл слов и не добавляй отсебятины (вступлений, пояснений).
-3. Цензурируй ненормативную лексику (заменяй на *), но не меняй общий тон, если он не оскорбителен.
-4. Удали только явный мусор и повторы.
-5. ВЕРНИ ТОЛЬКО ИСПРАВЛЕННЫЙ ТЕКСТ.
+3. МАТЕРНЫЕ СЛОВА (блять, нахуй и т.д.): Если это слово-паразит — УДАЛИ его. Если это часть эмоции — ЗАМЕНИ на культурный аналог (блин, фигня, к черту).
+4. НИКОГДА НЕ ИСПОЛЬЗУЙ ЗВЕЗДОЧКИ (***) или цензуру символами. Текст должен быть чистым.
+5. Удали только явный мусор и повторы.
+6. ВЕРНИ ТОЛЬКО ИСПРАВЛЕННЫЙ ТЕКСТ.
 `,
     combined: `
-Исправь ошибки и пунктуацию. Цензурируй мат (*).
+Исправь ошибки и пунктуацию.
+ЦЕНЗУРА: Удаляй мат или заменяй на литературные аналоги. НИКАКИХ ЗВЕЗДОЧЕК (*).
 ВАЖНО: Максимально сохрани исходную структуру и стиль. Не переписывай текст своими словами, только правь ошибки.
 ВЕРНИ ТОЛЬКО ГОТОВЫЙ ВАРИАНТ.
 `,
@@ -34,6 +35,7 @@ export const PROMPTS = {
 СТРОГИЕ ЗАПРЕТЫ:
 1. НИКАКИХ списков вариантов. Только ОДИН лучший результат.
 2. Не меняй технический смысл или команды.
+3. Убирай мат или заменяй на мягкие аналоги.
 ВЕРНИ ТОЛЬКО УЛУЧШЕННЫЙ ТЕКСТ.
 `,
     transcribe: `
@@ -45,6 +47,14 @@ export const PROMPTS = {
 4. Игнорируй повторы и заикания.
 5. Если речи нет — верни пустую строку.
 ВЕРНИ ТОЛЬКО ПРОИЗНЕСЕННЫЙ ТЕКСТ.
+`,
+    ocr: `
+Твоя задача: Извлечь текст из изображения (OCR).
+СТРОГИЕ ПРАВИЛА:
+1. Верни ТОЛЬКО текст, который видишь на картинке.
+2. НЕ добавляй описаний типа "На картинке написано", "Текст следующий".
+3. Сохраняй форматирование (новые строки), если это уместно.
+4. Если текста нет, верни пустую строку.
 `
   },
   en: {
@@ -56,16 +66,18 @@ STRICT RULES:
 3. Return ONLY corrected text.
 `,
     finalize: `
-You are a proofreader. Fix grammar, spelling, punctuation, and censor profanity.
+You are a proofreader. Fix grammar, spelling, punctuation, and remove profanity.
 STRICT RULES:
 1. PRESERVE ORIGINAL STRUCTURE. Do not rewrite commands or fragments into full sentences.
 2. DO NOT add new words or change the meaning.
-3. Censor profanity with asterisks (*).
-4. Remove accidental repetitions.
-5. Return ONLY the corrected text.
+3. PROFANITY: Remove profane filler words. Replace meaningful profanity with mild euphemisms (heck, darn).
+4. NEVER USE ASTERISKS (***) or masking symbols.
+5. Remove accidental repetitions.
+6. Return ONLY the corrected text.
 `,
     combined: `
-Fix errors and punctuation. Censor profanity (*).
+Fix errors and punctuation.
+CENSORSHIP: Remove profanity or replace with mild euphemisms. NO ASTERISKS (*).
 IMPORTANT: Preserve the original structure and style. Do not rewrite, only fix errors.
 RETURN ONLY THE ONE BEST VERSION.
 `,
@@ -75,6 +87,7 @@ Polish the text for clarity and grammar.
 RULES:
 1. Only ONE final version.
 2. Do not alter technical meaning or commands.
+3. Remove or soften profanity.
 RETURN ONLY THE TEXT.
 `,
     transcribe: `
@@ -86,6 +99,14 @@ STRICT PROHIBITIONS (NEVER DO THIS):
 4. Ignore stutters.
 5. If there is no speech, return an empty string.
 RETURN ONLY THE SPOKEN TEXT.
+`,
+    ocr: `
+Your task: Extract text from the image (OCR).
+STRICT RULES:
+1. Return ONLY the text visible in the image.
+2. DO NOT add descriptions like "The image says", "Here is the text".
+3. Preserve line breaks where appropriate.
+4. If there is no text, return an empty string.
 `
   }
 };
@@ -93,6 +114,12 @@ RETURN ONLY THE SPOKEN TEXT.
 export const UI = {
   ru: {
     // --- WIZARD STEPS ---
+    // STEP 0 (NEW)
+    wizStep0Title: "Настройка звука",
+    wizStep0Subtitle: "Включить голосовое сопровождение?",
+    btnSoundOn: "Включить звук",
+    btnSoundOff: "Без звука",
+
     wizStep1Title: "Добро пожаловать",
     wizStep1Subtitle: "Ваш умный ИИ-помощник",
     wizStep1Desc: "FastType AI ускоряет набор текста, исправляет ошибки на лету и помогает формулировать мысли.",
@@ -148,10 +175,11 @@ export const UI = {
     
     getKeyLink: "Получить бесплатный ключ Gemini",
     keyStorageInfo: "Ключ сохраняется локально на вашем устройстве.",
-    placeholder: "Начните печатать здесь...",
+    placeholder: "Начните печатать здесь... (или перетащите файл)",
     chars: "симв.",
     btnRecord: "Диктовать (Alt+R)",
     btnStop: "Стоп (Alt+R)",
+    btnDevRecord: "Диктовать (DEV)",
     btnEnhance: "Улучшить текст",
     btnUndo: "Отменить",
     btnRedo: "Вернуть",
@@ -165,7 +193,7 @@ export const UI = {
     statusCorrecting: "Исправление...",
     statusEnhancing: "Улучшение...",
     statusRecording: "Запись...",
-    statusTranscribing: "Транскрибация...",
+    statusTranscribing: "Обработка...",
     statusDictation: "Диктовка (Речь в Текст)",
     statusDone: "Готово",
     statusIdle: "Готов к работе",
@@ -183,15 +211,17 @@ export const UI = {
     settingsActive: "Активный режим",
     settingsMiniScripts: "Мини-Скрипты",
     settingsMiniScriptsDesc: "Мгновенное исправление пробелов и регистра (без ИИ)",
+    settingsDevMode: "Режим разработчика", 
+    settingsDevModeDesc: "Включает тестовые кнопки (Visualizer Test)",
     settingsDelay: "Задержка (ms)",
     settingsDelayDesc: "Скорость реакции ИИ на опечатки",
     settingsFinalization: "Финализация простоя (сек)",
     
     howItWorksTitle: "ЛЕГЕНДА ЦВЕТОВ",
-    howItWorksDesc: "1. Серый: Ввод\n2. Красный: Ошибка (Словарь)\n3. Голубой: Проверено (ОК)\n4. Фиолетовый: Исправлено ИИ\n5. Зеленый: Финал\n6. Оранжевый: Диктовка",
+    howItWorksDesc: "1. Серый: Ввод\n2. Жёлтый: Проверка словаря\n3. Красный: Ошибка (Словарь)\n4. Голубой: Проверено (ОК)\n5. Фиолетовый: Исправлено ИИ\n6. Зеленый: Финал",
     changeKey: "Сменить API Ключ",
     footer: "FastType AI",
-    clipboardTitle: "Буфер обмена (Alt+V)",
+    clipboardTitle: "Буфер обмена (Alt+W)",
     clipboardEmpty: "История пуста",
     clipboardCopy: "Скопировать",
     clipboardClear: "Очистить",
@@ -211,7 +241,7 @@ export const UI = {
     // Detailed Status Tooltips
     detailDictation: "🟠 ЦВЕТ: Оранжевый\nДЕЙСТВИЕ: Запись голоса\nРЕЗУЛЬТАТ: Аудио в текст",
     detailTyping: "⚪ ЦВЕТ: Серый\nДЕЙСТВИЕ: Ввод с клавиатуры\nРЕЗУЛЬТАТ: Сырой текст",
-    detailDictCheck: "🔵 Голубой: Слово найдено (ОК)\n🔴 Красный: Ошибка / Нет в словаре\nДЕЙСТВИЕ: Проверка орфографии",
+    detailDictCheck: "🟡 Жёлтый: Проверка...\n🔵 Голубой: Найдено (ОК)\n🔴 Красный: Ошибка (Нет в базе)",
     detailAiFixing: "🟣 ЦВЕТ: Фиолетовый\nДЕЙСТВИЕ: Gemini исправляет\nРЕЗУЛЬТАТ: Чистый текст",
     detailFinalizing: "🟢 ЦВЕТ: Зеленый\nДЕЙСТВИЕ: Финализация\nРЕЗУЛЬТАТ: Пунктуация",
     detailScriptFix: "⚡ АВТО-ФОРМАТ\nДЕЙСТВИЕ: Исправление пробелов и регистра\nРЕЗУЛЬТАТ: Чистый формат",
@@ -267,9 +297,9 @@ export const UI = {
     // Help Modal
     helpModalTitle: "Справка FastType AI",
     helpSection1: "Основные функции",
-    helpDesc1: "Система работает по принципу конвейера. Группы слов проходят стадии: Словарь (Красный) -> Проверено (Голубой) -> Исправлено ИИ (Фиолетовый) -> Финал (Зеленый). Оранжевый = Диктовка.",
+    helpDesc1: "Система работает по принципу конвейера. Группы слов проходят стадии: Проверка (Жёлтый) -> Словарь (Красный) -> Проверено (Голубой) -> Исправлено ИИ (Фиолетовый) -> Финал (Зеленый). Оранжевый = Диктовка.",
     helpSection2: "Горячие клавиши",
-    helpDesc2: "Ctrl+Z - Отмена\nAlt+R - Запись\nAlt+V - Буфер\nAlt+H - История\nAlt+S - Настройки\nAlt+A - Пауза/Возобновление",
+    helpDesc2: "Ctrl+Z - Отмена\nAlt+R - Запись\nAlt+W - Буфер\nAlt+H - История\nAlt+S - Настройки\nAlt+A - Пауза/Возобновление",
     helpSection3: "Микрофон",
     helpDesc3: "Нажмите и говорите. ИИ автоматически вырежет тишину.",
     // Lock Screen
@@ -283,7 +313,9 @@ export const UI = {
     lockSetBtn: "Сохранить PIN",
     lockError: "Неверный PIN-код",
     lockRemove: "Удалить PIN-код",
-    lockChange: "Изменить PIN",
+    lockChange: "Изменить PIN-код",
+    lockVerifyOld: "Введите текущий PIN",
+    lockNew: "Новый PIN",
     lockSaved: "PIN-код установлен",
     lockForgot: "Забыли PIN / Сбросить?",
     
@@ -314,10 +346,22 @@ export const UI = {
     // Tabs
     tabEditor: "Редактор",
     tabAssist: "Ассистент",
-    tabTrans: "Перевод"
+    tabTrans: "Перевод",
+    
+    // Media Upload
+    uploadMedia: "Загрузить Аудио/Изображение",
+    uploadProcessing: "Обработка...",
+    dropHere: "Перетащите файл сюда",
+    dropHint: "Аудио (.mp3, .wav) или Изображения"
   },
   en: {
     // --- WIZARD STEPS ---
+    // STEP 0 (NEW)
+    wizStep0Title: "Sound Setup",
+    wizStep0Subtitle: "Enable voice guidance?",
+    btnSoundOn: "Enable Sound",
+    btnSoundOff: "Mute",
+
     wizStep1Title: "Welcome",
     wizStep1Subtitle: "Your Intelligent AI Assistant",
     wizStep1Desc: "FastType AI speeds up typing, fixes errors on the fly, and helps formulate thoughts.",
@@ -372,10 +416,11 @@ export const UI = {
 
     getKeyLink: "Get free Gemini API Key",
     keyStorageInfo: "Key is stored locally on your device.",
-    placeholder: "Start typing here...",
+    placeholder: "Start typing here... (or drop file)",
     chars: "chars",
     btnRecord: "Dictate (Alt+R)",
     btnStop: "Stop (Alt+R)",
+    btnDevRecord: "Dictate (DEV)",
     btnEnhance: "Improve Text",
     btnUndo: "Undo",
     btnRedo: "Redo",
@@ -389,7 +434,7 @@ export const UI = {
     statusCorrecting: "Fixing...",
     statusEnhancing: "Enhancing...",
     statusRecording: "Recording...",
-    statusTranscribing: "Transcribing...",
+    statusTranscribing: "Processing...",
     statusDictation: "Dictation (Speech to Text)",
     statusDone: "Done",
     statusIdle: "Ready",
@@ -407,15 +452,17 @@ export const UI = {
     settingsActive: "Active Mode",
     settingsMiniScripts: "Mini-Scripts",
     settingsMiniScriptsDesc: "Instant regex fixes for spacing and case (No AI)",
+    settingsDevMode: "Developer Mode",
+    settingsDevModeDesc: "Enables test buttons (Visualizer Test)",
     settingsDelay: "Delay (ms)",
     settingsDelayDesc: "Wait time before processing",
     settingsFinalization: "Idle Finalization (sec)",
 
     howItWorksTitle: "COLOR LEGEND",
-    howItWorksDesc: "1. Grey: Input\n2. Red: Dict Error\n3. Blue: Verified (OK)\n4. Purple: AI Fixed\n5. Green: Final\n6. Orange: Dictation",
+    howItWorksDesc: "1. Grey: Input\n2. Yellow: Checking\n3. Red: Dict Error\n4. Blue: Verified (OK)\n5. Purple: AI Fixed\n6. Green: Final\n7. Orange: Dictation",
     changeKey: "Change API Key",
     footer: "FastType AI",
-    clipboardTitle: "Clipboard History (Alt+V)",
+    clipboardTitle: "Clipboard History (Alt+W)",
     clipboardEmpty: "History is empty",
     clipboardCopy: "Copy",
     clipboardClear: "Clear All",
@@ -435,7 +482,7 @@ export const UI = {
     // Detailed Status Tooltips
     detailDictation: "🟠 COLOR: Orange\nACTION: Voice Recording\nRESULT: Audio to Text",
     detailTyping: "⚪ COLOR: Grey\nACTION: Keyboard Input\nRESULT: Raw Text",
-    detailDictCheck: "🔵 Blue: Word Found (OK)\n🔴 Red: Error / Not found\nACTION: Spelling Check",
+    detailDictCheck: "🟡 Yellow: Checking...\n🔵 Blue: Found (OK)\n🔴 Red: Error (Not in DB)",
     detailAiFixing: "🟣 COLOR: Purple\nACTION: Gemini Fixing\nRESULT: Clean Text",
     detailFinalizing: "🟢 COLOR: Green\nACTION: Finalizing\nRESULT: Punctuation",
     detailScriptFix: "⚡ AUTO-FORMAT\nACTION: Spacing and capitalization\nRESULT: Clean Format",
@@ -491,9 +538,9 @@ export const UI = {
     // Help Modal
     helpModalTitle: "FastType AI Help",
     helpSection1: "Core Features",
-    helpDesc1: "Pipeline system: Dictionary (Red) -> Verified (Blue) -> AI Fixed (Purple) -> Final (Green). Orange = Dictation.",
+    helpDesc1: "Pipeline: Checking (Yellow) -> Error (Red) -> Verified (Blue) -> AI Fixed (Purple) -> Final (Green). Orange = Dictation.",
     helpSection2: "Shortcuts",
-    helpDesc2: "Ctrl+Z - Undo\nAlt+R - Record\nAlt+V - Clipboard\nAlt+H - History\nAlt+S - Settings\nAlt+A - Pause/Resume",
+    helpDesc2: "Ctrl+Z - Undo\nAlt+R - Record\nAlt+W - Clipboard\nAlt+H - History\nAlt+S - Settings\nAlt+A - Pause/Resume",
     helpSection3: "Microphone",
     helpDesc3: "Click and speak. AI automatically filters silence.",
     // Lock Screen
@@ -508,6 +555,8 @@ export const UI = {
     lockError: "Invalid PIN code",
     lockRemove: "Remove PIN",
     lockChange: "Change PIN",
+    lockVerifyOld: "Enter current PIN",
+    lockNew: "New PIN",
     lockSaved: "PIN code set",
     lockForgot: "Forgot PIN / Reset?",
     
@@ -538,7 +587,13 @@ export const UI = {
     // Tabs
     tabEditor: "Editor",
     tabAssist: "Assistant",
-    tabTrans: "Translator"
+    tabTrans: "Translator",
+    
+    // Media Upload
+    uploadMedia: "Upload Audio/Image",
+    uploadProcessing: "Processing...",
+    dropHere: "Drop file here",
+    dropHint: "Audio (.mp3, .wav) or Images"
   }
 };
 

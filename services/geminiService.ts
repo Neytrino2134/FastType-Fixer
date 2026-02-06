@@ -221,3 +221,40 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
     return "";
   }
 };
+
+export const recognizeTextFromImage = async (base64Image: string, mimeType: string, language: Language): Promise<string> => {
+  if (!ai) throw new Error("API Key not set");
+
+  const prompts = getPrompts(language);
+
+  try {
+    console.log(`Sending Image to Gemini [OCR]: ${mimeType}, size: ${Math.round(base64Image.length/1024)}KB`);
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash', // Using flash for fast OCR
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: base64Image,
+            },
+          },
+        ],
+      },
+      config: {
+        systemInstruction: prompts.ocr,
+        temperature: 0.1, // Very low temp for exact text extraction
+      },
+    });
+
+    let result = response.text || "";
+    // Basic cleaning of OCR artifacts if needed, but usually OCR should be raw
+    result = cleanGeminiResponse(result);
+    
+    return result;
+  } catch (error) {
+    console.error("Gemini OCR Error:", error);
+    return "";
+  }
+};

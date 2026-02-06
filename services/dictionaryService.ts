@@ -31,9 +31,6 @@ export const isWordInDictionary = (word: string, language: Language): boolean =>
  * Returns null if all words are known.
  */
 export const findUnknownSegments = (text: string, language: Language): { text: string, start: number, end: number }[] | null => {
-  // Regex to split by spaces but keep delimiters to calculate indices
-  // We identify words.
-  const regex = /([\s\S]+?)/g; 
   // Easier approach: iterate words via regex matches
   const wordRegex = /[^ \t\n\r.,!?;:()""''«»—]+/g;
   
@@ -45,15 +42,16 @@ export const findUnknownSegments = (text: string, language: Language): { text: s
     const startIndex = match.index;
     const endIndex = startIndex + word.length;
 
-    if (!isWordInDictionary(word, language)) {
+    // RULE: Ignore words with 3 letters or less (prepositions, conjunctions, initials)
+    if (word.length > 3 && !isWordInDictionary(word, language)) {
       unknownRanges.push({ start: startIndex, end: endIndex });
     }
   }
 
   if (unknownRanges.length === 0) return null;
 
-  // Group adjacent unknown words into chunks to avoid too many API calls
-  // e.g. "word (unknown) (unknown) word" -> 1 chunk
+  // Group adjacent unknown words into chunks.
+  // If the gap between errors contains ONLY short words (<= 3 chars) or punctuation, merge them.
   const chunks: { text: string, start: number, end: number }[] = [];
   
   if (unknownRanges.length > 0) {
@@ -62,14 +60,17 @@ export const findUnknownSegments = (text: string, language: Language): { text: s
 
       for (let i = 1; i < unknownRanges.length; i++) {
           const nextRange = unknownRanges[i];
-          // If the gap between words is just whitespace/punctuation, merge them
           const gap = text.slice(currentEnd, nextRange.start);
           
-          // Heuristic: if gap is small (just a space or two), merge
-          if (gap.length < 3) {
+          // Check if gap consists only of bridgeable content (short words <= 3 chars)
+          const gapWords = gap.split(/[^a-zA-Zа-яА-ЯёЁ0-9]+/).filter(w => w.trim().length > 0);
+          const isGapBridgeable = gapWords.every(w => w.length <= 3);
+
+          // Heuristic: if gap is small (just a space) OR consists of short words, merge
+          if (gap.length < 5 || isGapBridgeable) {
               currentEnd = nextRange.end;
           } else {
-              // Push current
+              // Push current group
               chunks.push({
                   text: text.slice(currentStart, currentEnd),
                   start: currentStart,
@@ -79,7 +80,7 @@ export const findUnknownSegments = (text: string, language: Language): { text: s
               currentEnd = nextRange.end;
           }
       }
-      // Push last
+      // Push last group
       chunks.push({
           text: text.slice(currentStart, currentEnd),
           start: currentStart,

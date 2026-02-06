@@ -1,19 +1,22 @@
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { getTranslation } from '../../utils/i18n';
 import { Language, ProcessingStatus, VisualizerStatus } from '../../types';
 import { splitIntoBlocks, normalizeBlock } from '../../utils/textStructure';
-import { Mic, Sparkles, Pause, Play } from 'lucide-react';
+import { Mic, Sparkles, Pause, Play, FileInput } from 'lucide-react';
 import { VisualizerCanvas } from './VisualizerCanvas';
+import { ProcessingOverlay } from '../../hooks/useTextProcessor';
 
 interface EditorSurfaceProps {
   text: string;
   committedLength: number;
   correctedLength: number;
   checkedLength: number;
+  checkingLength: number; // NEW
   finalizedSentences: Set<string>;
   aiFixedSegments: Set<string>; 
   dictatedSegments: Set<string>;
+  unknownSegments: Set<string>; // NEW
   status: ProcessingStatus;
   visualizerStatus: VisualizerStatus;
   isAnalyzing: boolean;
@@ -34,6 +37,12 @@ interface EditorSurfaceProps {
   highCut?: number;
   amp?: number;
   visualizerStyle?: 'classic' | 'bars' | 'circular' | 'wave';
+  silenceThreshold: number;
+  visualizerNorm?: boolean;
+  visualizerGravity?: number;
+  visualizerMirror?: boolean;
+  onDropFile?: (file: File) => void; // Handler for Drag Drop
+  processingOverlay?: ProcessingOverlay | null; // NEW: Track active AI operation
 }
 
 export const EditorSurface: React.FC<EditorSurfaceProps> = ({
@@ -41,9 +50,11 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
   committedLength,
   correctedLength,
   checkedLength,
+  checkingLength,
   finalizedSentences,
   aiFixedSegments,
   dictatedSegments,
+  unknownSegments,
   status,
   visualizerStatus,
   isAnalyzing,
@@ -59,21 +70,72 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
   onInteraction,
   isPaused,
   showResumeAnimation,
-  lowCut = 2,
-  highCut = 60,
-  amp = 1,
-  visualizerStyle = 'classic'
+  lowCut = 0,
+  highCut = 128,
+  amp = 0.4,
+  visualizerStyle = 'classic',
+  silenceThreshold,
+  visualizerNorm = false,
+  visualizerGravity = 2.0,
+  visualizerMirror = false,
+  onDropFile,
+  processingOverlay
 }) => {
   const t = getTranslation(language);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Ensure we only leave when leaving the container itself
+      if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+      setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          const file = e.dataTransfer.files[0];
+          if (onDropFile) {
+              onDropFile(file);
+          }
+      }
+  };
+
+  // Helper to strictly clean a word for unknown list check
+  const cleanWordForCheck = (w: string) => w.toLowerCase().replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').trim();
 
   const renderedContent = useMemo(() => {
     const blocks = splitIntoBlocks(text);
     const safeCommitted = Math.min(committedLength, text.length);
     const safeCorrected = Math.min(Math.max(safeCommitted, correctedLength), text.length);
     const safeChecked = Math.min(Math.max(safeCorrected, checkedLength), text.length);
+    const safeChecking = Math.min(Math.max(safeChecked, checkingLength), text.length);
 
     return blocks.map((block, index) => {
         const normalized = normalizeBlock(block.text);
+
+        // PRIORITY: If currently processed by AI, pulse the text brightness
+        // This overrides standard coloring logic for the duration of the API call
+        if (processingOverlay && block.start >= processingOverlay.start && block.end <= processingOverlay.end) {
+             if (processingOverlay.type === 'fixing') {
+                 // Pulsing Purple (Fixing)
+                 return <span key={index} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+             }
+             if (processingOverlay.type === 'finalizing') {
+                 // Pulsing Green (Finalizing)
+                 return <span key={index} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+             }
+        }
 
         if (finalizedSentences.has(normalized)) {
             return <span key={index} className="text-emerald-500 transition-colors duration-500">{block.text}</span>;
@@ -84,39 +146,113 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
 
         const renderSubSegment = (subText: string, subStart: number) => {
             const subEnd = subStart + subText.length;
-            const getClass = (s: number) => {
-                if (s < safeCommitted) return "text-emerald-500 transition-colors duration-500"; 
-                if (s < safeCorrected) {
-                    if (aiFixedSegments.has(normalized)) return "text-violet-400 font-medium transition-colors duration-300"; 
-                    return "text-sky-400 transition-colors duration-300"; 
-                }
-                if (s < safeChecked) return "text-red-400 font-medium transition-colors duration-200"; 
-                return "text-slate-200 transition-colors duration-200"; 
-            };
-            const boundaries = [safeCommitted, safeCorrected, safeChecked].filter(p => p > subStart && p < subEnd);
-            if (boundaries.length === 0) return <span key={subStart} className={getClass(subStart)}>{subText}</span>;
             
-            const parts = [];
-            let curr = subStart;
-            const sortedBounds = [...new Set(boundaries)].sort((a,b) => a-b);
-            for (const b of sortedBounds) {
-                const chunk = subText.slice(curr - subStart, b - subStart);
-                parts.push(<span key={curr} className={getClass(curr)}>{chunk}</span>);
-                curr = b;
+            // Re-check processing overlay for partial chunks (rare but possible)
+            if (processingOverlay && subStart >= processingOverlay.start && subEnd <= processingOverlay.end) {
+                 if (processingOverlay.type === 'fixing') {
+                     return <span key={subStart} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+                 }
+                 if (processingOverlay.type === 'finalizing') {
+                     return <span key={subStart} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+                 }
             }
-            if (curr < subEnd) {
-                 const chunk = subText.slice(curr - subStart);
-                 parts.push(<span key={curr} className={getClass(curr)}>{chunk}</span>);
+
+            // Logic to determine style based on range
+            if (subEnd <= safeCommitted) {
+                return <span key={subStart} className="text-emerald-500 transition-colors duration-500">{subText}</span>;
             }
-            return parts;
+            if (subEnd <= safeCorrected) {
+                if (aiFixedSegments.has(normalized)) {
+                    return <span key={subStart} className="text-violet-400 font-medium transition-colors duration-300">{subText}</span>;
+                }
+                // AI Processed but not fixed specifically? (Blue)
+                return <span key={subStart} className="text-sky-400 transition-colors duration-300">{subText}</span>;
+            }
+            
+            // CHECKED ZONE (Between Corrected and Checked)
+            // This is where we apply word-level red/blue logic
+            if (subStart >= safeCorrected && subEnd <= safeChecked) {
+                 // Split into words to check against unknownSegments
+                 // Using updated regex to split by more separators including hyphens/slashes to match worker logic better
+                 // Splitting by: space, punctuation, brackets, quotes, dashes, slashes
+                 const parts = subText.split(/([^\s.,!?;:()""''«»—\-\/_+]+)/);
+                 return (
+                    <span key={subStart}>
+                        {parts.map((part, i) => {
+                            if (!part) return null;
+                            // Check if part is a word
+                            const isWord = /[a-zA-Zа-яА-ЯёЁ0-9]/.test(part);
+                            if (isWord) {
+                                // Strictly clean to match how worker stores unknowns
+                                const clean = cleanWordForCheck(part);
+                                const isUnknown = unknownSegments.has(clean);
+                                return (
+                                    <span key={i} className={isUnknown ? "text-red-400 font-medium transition-colors duration-200" : "text-sky-400 transition-colors duration-200"}>
+                                        {part}
+                                    </span>
+                                );
+                            }
+                            // Separators/Punctuation match the "valid" color usually
+                            return <span key={i} className="text-sky-400 transition-colors duration-200">{part}</span>;
+                        })}
+                    </span>
+                 );
+            }
+
+            if (subEnd <= safeChecking) {
+                return <span key={subStart} className="text-yellow-400 font-medium transition-colors duration-300">{subText}</span>;
+            }
+
+            // Default (Raw Input)
+            return <span key={subStart} className="text-slate-200 transition-colors duration-200">{subText}</span>;
         };
-        return <React.Fragment key={index}>{renderSubSegment(block.text, block.start)}</React.Fragment>;
+        
+        // If block spans across boundaries, we must split it physically for the logic above to work cleanly
+        
+        const boundaries = [safeCommitted, safeCorrected, safeChecked, safeChecking].filter(p => p > block.start && p < block.end);
+        
+        if (boundaries.length === 0) {
+            // Whole block fits in one zone
+            return renderSubSegment(block.text, block.start);
+        }
+
+        const parts = [];
+        let curr = block.start;
+        const sortedBounds = [...new Set(boundaries)].sort((a,b) => a-b);
+        
+        for (const b of sortedBounds) {
+            const chunk = text.slice(curr, b);
+            parts.push(renderSubSegment(chunk, curr));
+            curr = b;
+        }
+        if (curr < block.end) {
+             const chunk = text.slice(curr, block.end);
+             parts.push(renderSubSegment(chunk, curr));
+        }
+
+        return <React.Fragment key={index}>{parts}</React.Fragment>;
     });
-  }, [text, committedLength, correctedLength, checkedLength, finalizedSentences, aiFixedSegments, dictatedSegments]);
+  }, [text, committedLength, correctedLength, checkedLength, checkingLength, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments, processingOverlay]);
 
   return (
-    <div className="relative flex-1 w-full overflow-hidden">
+    <div 
+        className="relative flex-1 w-full overflow-hidden"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+    >
       
+      {/* DRAG OVERLAY */}
+      {isDragging && (
+          <div className="absolute inset-4 z-50 rounded-3xl border-4 border-dashed border-indigo-500/50 bg-slate-900/90 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-200 pointer-events-none">
+              <div className="p-6 rounded-full bg-indigo-500/20 mb-4 animate-bounce">
+                  <FileInput className="w-12 h-12 text-indigo-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">{t.dropHere || "Drop file here"}</h3>
+              <p className="text-slate-400 text-sm">{t.dropHint || "Audio or Image"}</p>
+          </div>
+      )}
+
       {/* OPTIMIZED VISUALIZER COMPONENT */}
       <VisualizerCanvas 
         visualizerDataRef={visualizerDataRef}
@@ -125,9 +261,13 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
         highCut={highCut}
         amp={amp}
         visualizerStyle={visualizerStyle}
+        silenceThreshold={silenceThreshold}
+        norm={visualizerNorm}
+        gravity={visualizerGravity}
+        mirror={visualizerMirror}
       />
 
-      <div className={`absolute inset-0 flex items-center justify-center z-0 pointer-events-none transition-[opacity,transform] duration-500 ease-in-out ${isPaused ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
+      <div className={`absolute inset-0 flex items-center justify-center z-0 pointer-events-none transition-[opacity,transform] duration-500 ease-in-out ${isPaused ? 'opacity-100 scale-100' : 'opacity-0 scale-110 scale-95'}`}>
          <div className="flex flex-col items-center text-slate-700/20 select-none">
              <Pause className="w-32 h-32 md:w-48 md:h-48 fill-current" />
              <span className="text-2xl md:text-4xl font-black tracking-[0.5em] uppercase mt-4">{t.statusPaused}</span>

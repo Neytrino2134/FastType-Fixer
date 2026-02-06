@@ -1,12 +1,3 @@
-
-
-
-
-
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, ArrowRight, ShieldCheck, Keyboard, Wand2, Zap, Globe, Lock, Unlock, Shield, ChevronLeft, Info, Minus, Square, X, Languages, Check, Volume2, VolumeX, AlertTriangle, AlertOctagon, ExternalLink, Key, ClipboardPaste } from 'lucide-react';
 import { Language } from '../types';
@@ -14,6 +5,7 @@ import { getTranslation } from '../utils/i18n';
 import { useNotification } from '../contexts/NotificationContext';
 import { APP_VERSION } from '../utils/versionInfo';
 import { ApiKeyGuide } from './ApiKeyGuide';
+import { VisualizerCanvas } from './Editor/VisualizerCanvas';
 
 interface WelcomeScreenProps {
   initialKey: string;
@@ -106,22 +98,28 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
   const [currentView, setCurrentView] = useState<ViewState>(initialKey ? 'setup' : 'welcome');
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward');
 
-  // Wizard State
+  // Wizard State (Now 0 to 4, total 5 steps. 0 is Sound, 1 is Intro...)
   const [wizardStep, setWizardStep] = useState(0);
-  const totalWizardSteps = 4;
+  const totalWizardSteps = 5; // Increased by 1
 
   // Security State
   const [lockInput, setLockInput] = useState('');
   const [newLockInput, setNewLockInput] = useState('');
   const [lockError, setLockError] = useState('');
   const [showPinMenu, setShowPinMenu] = useState(false);
-  const [showWipeModal, setShowWipeModal] = useState(false); // NEW: Wipe Warning Modal
+  const [showWipeModal, setShowWipeModal] = useState(false); 
   
   // Audio State
   const [isMuted, setIsMuted] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
-  // Audio System Ref
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Audio System Refs (Web Audio API for Visualization)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null); 
+  const visualizerDataRef = useRef<Uint8Array>(new Uint8Array(128)); 
+  const rafIdRef = useRef<number | null>(null);
 
   const { addNotification } = useNotification();
   const t = getTranslation(language);
@@ -138,42 +136,100 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
   useEffect(() => { setLockError(''); }, [lockInput, newLockInput]);
 
-  // --- AUDIO SYSTEM EFFECT ---
+  // --- INITIALIZE AUDIO SYSTEM ---
   useEffect(() => {
-    // Logic: Only play audio if we are in the 'welcome' wizard view.
-    if (currentView !== 'welcome') {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
-        }
+      // Create the Audio Element once
+      const audio = new Audio();
+      audio.crossOrigin = "anonymous";
+      audioRef.current = audio;
+
+      // Initialize Web Audio API context (but start suspended usually)
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioContextClass();
+      audioContextRef.current = ctx;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyserRef.current = analyser;
+
+      // Connect: AudioElement -> Source -> Analyser -> Destination
+      const source = ctx.createMediaElementSource(audio);
+      sourceRef.current = source;
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      // Start Data Loop
+      const updateVisualizer = () => {
+          if (analyserRef.current) {
+              // Fix TS Error: Cast to any to satisfy specific Uint8Array requirement
+              analyserRef.current.getByteFrequencyData(visualizerDataRef.current as any);
+          }
+          rafIdRef.current = requestAnimationFrame(updateVisualizer);
+      };
+      updateVisualizer();
+
+      return () => {
+          if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+          if (audioContextRef.current) audioContextRef.current.close();
+          if (audioRef.current) {
+              audioRef.current.pause();
+              audioRef.current = null;
+          }
+      };
+  }, []);
+
+  // --- AUDIO PLAYBACK CONTROL ---
+  useEffect(() => {
+    if (!audioRef.current) return;
+
+    // Stop current playback
+    audioRef.current.pause();
+    setIsPlayingAudio(false);
+
+    // Only play in 'welcome' view
+    // AND skip step 0 (Sound setup)
+    if (currentView !== 'welcome' || isMuted || wizardStep === 0) {
         return;
     }
 
-    if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-    }
+    // Step 1 corresponds to file 1, Step 2 to file 2...
+    // Since we added Step 0 at the beginning, we can just use wizardStep as file index
+    // New Order: 0=Sound, 1=Lang, 2=Intro, 3=Features, 4=API
+    // Files assumed: 1=Intro, 2=Lang, 3=Features, 4=API
+    // Mapping:
+    let fileIndex = wizardStep; 
+    if (wizardStep === 1) fileIndex = 2; // Language Screen -> Play File 2 (Language Audio)
+    else if (wizardStep === 2) fileIndex = 1; // Intro Screen -> Play File 1 (Intro Audio)
 
-    if (isMuted) return;
-
-    const fileIndex = wizardStep + 1;
     const soundPath = `./sounds/welcome_step_${fileIndex}_${language}.wav`;
 
-    const audio = new Audio(soundPath);
-    audio.volume = 1.0; 
-    audioRef.current = audio;
-
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-        playPromise.catch(e => {
-            console.log("Audio autoplay waiting for interaction:", e);
-        });
+    audioRef.current.src = soundPath;
+    audioRef.current.volume = 0.6; // Set default volume to 60%
+    
+    // Ensure Context is running (browser policy)
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+        audioContextRef.current.resume();
     }
+
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+        playPromise
+            .then(() => {
+                setIsPlayingAudio(true);
+            })
+            .catch(e => {
+                console.log("Audio autoplay waiting for interaction:", e);
+                setIsPlayingAudio(false);
+            });
+    }
+
+    // Reset status on end
+    const handleEnded = () => setIsPlayingAudio(false);
+    audioRef.current.addEventListener('ended', handleEnded);
 
     return () => {
         if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
+            audioRef.current.removeEventListener('ended', handleEnded);
         }
     };
   }, [wizardStep, language, currentView, isMuted]);
@@ -381,6 +437,23 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
       
       {/* Background Ambience */}
       <div className={`fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none transition-opacity duration-1000 ${isExiting ? 'opacity-0' : 'opacity-100'}`}>
+         {/* VISUALIZER LAYER */}
+         <div className={`absolute inset-0 z-0 opacity-40 transition-opacity duration-1000 ${currentView === 'welcome' && isPlayingAudio ? 'opacity-40' : 'opacity-0'}`}>
+             <VisualizerCanvas 
+                visualizerDataRef={visualizerDataRef}
+                isRecording={true} // Force visualizer to be "active" to show the wave
+                visualizerStyle="wave"
+                amp={0.6} // Reduced amplitude for gentle wave
+                highCut={50} // Lower high cut for smoother wave
+                lowCut={2}
+                gravity={1.5}
+                silenceThreshold={5}
+                norm={true}
+                mirror={true}
+                rounded={true} // New Prop: Rounded Wave
+             />
+         </div>
+
          <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-indigo-900/10 blur-[120px] rounded-full animate-pulse [animation-duration:8s]"></div>
          <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-900/10 blur-[150px] rounded-full animate-pulse [animation-duration:10s]"></div>
       </div>
@@ -408,22 +481,41 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
              <div className="flex-1 flex flex-col relative overflow-hidden">
                 {/* Internal Header (Draggable + Mute) */}
                 <div className="shrink-0 h-14 w-full flex items-center px-4 z-50 titlebar-drag-region">
-                    <MuteButton />
+                    {/* Hide mute button on step 0 since it has big buttons */}
+                    {wizardStep > 0 && <MuteButton />}
                 </div>
                 
                 {/* WIZARD CONTENT AREA */}
                 <div className="flex-1 relative">
-                    {/* STEP 0: INTRO */}
+                    
+                    {/* STEP 0: SOUND CHECK (NEW) */}
                     <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 transition-all duration-500 ${wizardStep === 0 ? 'opacity-100 translate-x-0' : wizardStep < 0 ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-0 -translate-x-10 pointer-events-none'}`}>
-                        <div className="bg-indigo-600 p-6 rounded-3xl shadow-2xl shadow-indigo-900/50 mb-8 animate-[bounce_2s_infinite]">
-                            <Sparkles className="w-12 h-12 text-white" />
-                        </div>
-                        <h1 className="text-3xl font-bold text-white text-center mb-2">{t.wizStep1Title}</h1>
-                        <p className="text-xl text-indigo-400 font-medium text-center mb-6">{t.wizStep1Subtitle}</p>
-                        <p className="text-slate-400 text-center max-w-sm leading-relaxed">{t.wizStep1Desc}</p>
+                         <div className="bg-indigo-600/20 p-6 rounded-full mb-8 ring-1 ring-indigo-500/50">
+                             <Volume2 className="w-12 h-12 text-indigo-400" />
+                         </div>
+                         <h1 className="text-3xl font-bold text-white text-center mb-2">{t.wizStep0Title}</h1>
+                         <p className="text-xl text-slate-400 text-center mb-10">{t.wizStep0Subtitle}</p>
+                         
+                         <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
+                             <button 
+                                onClick={() => { setIsMuted(false); handleWizardNext(); }}
+                                className="p-6 rounded-2xl border border-slate-700 bg-slate-800 hover:bg-emerald-900/20 hover:border-emerald-500/50 hover:text-emerald-400 transition-all duration-300 flex flex-col items-center gap-3 group"
+                             >
+                                 <Volume2 className="w-8 h-8 group-hover:scale-110 transition-transform" />
+                                 <span className="font-bold">{t.btnSoundOn}</span>
+                             </button>
+
+                             <button 
+                                onClick={() => { setIsMuted(true); handleWizardNext(); }}
+                                className="p-6 rounded-2xl border border-slate-700 bg-slate-800 hover:bg-slate-700/50 hover:border-slate-600 hover:text-slate-300 transition-all duration-300 flex flex-col items-center gap-3 group"
+                             >
+                                 <VolumeX className="w-8 h-8 group-hover:scale-110 transition-transform" />
+                                 <span className="font-bold">{t.btnSoundOff}</span>
+                             </button>
+                         </div>
                     </div>
 
-                    {/* STEP 1: LANGUAGE */}
+                    {/* STEP 1: LANGUAGE (Reordered from 2) */}
                     <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 transition-all duration-500 ${wizardStep === 1 ? 'opacity-100 translate-x-0' : wizardStep < 1 ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-0 -translate-x-10 pointer-events-none'}`}>
                          <h2 className="text-2xl font-bold text-white mb-2">{t.wizStep2Title}</h2>
                          <p className="text-slate-400 text-center mb-8">{t.wizStep2Desc}</p>
@@ -447,8 +539,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                          </div>
                     </div>
 
-                    {/* STEP 2: FEATURES + DEMO */}
+                    {/* STEP 2: INTRO (Reordered from 1) */}
                     <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 transition-all duration-500 ${wizardStep === 2 ? 'opacity-100 translate-x-0' : wizardStep < 2 ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-0 -translate-x-10 pointer-events-none'}`}>
+                        <div className="bg-indigo-600 p-6 rounded-3xl shadow-2xl shadow-indigo-900/50 mb-8 animate-[bounce_2s_infinite]">
+                            <Sparkles className="w-12 h-12 text-white" />
+                        </div>
+                        <h1 className="text-3xl font-bold text-white text-center mb-2">{t.wizStep1Title}</h1>
+                        <p className="text-xl text-indigo-400 font-medium text-center mb-6">{t.wizStep1Subtitle}</p>
+                        <p className="text-slate-400 text-center max-w-sm leading-relaxed">{t.wizStep1Desc}</p>
+                    </div>
+
+                    {/* STEP 3: FEATURES + DEMO */}
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 transition-all duration-500 ${wizardStep === 3 ? 'opacity-100 translate-x-0' : wizardStep < 3 ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-0 -translate-x-10 pointer-events-none'}`}>
                          <h2 className="text-2xl font-bold text-white mb-2">{t.wizStep3Title}</h2>
                          <p className="text-slate-400 text-center mb-6 max-w-sm text-sm">{t.wizStep3Desc}</p>
                          
@@ -461,8 +563,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                          </div>
                     </div>
 
-                    {/* STEP 3: API KEY (Final) */}
-                    <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 transition-all duration-500 ${wizardStep === 3 ? 'opacity-100 translate-x-0' : wizardStep < 3 ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-0 -translate-x-10 pointer-events-none'}`}>
+                    {/* STEP 4: API KEY (Final) */}
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center p-8 transition-all duration-500 ${wizardStep === 4 ? 'opacity-100 translate-x-0' : wizardStep < 4 ? 'opacity-0 translate-x-10 pointer-events-none' : 'opacity-0 -translate-x-10 pointer-events-none'}`}>
                          <div className="bg-emerald-500/20 p-6 rounded-full mb-6 ring-1 ring-emerald-500/50">
                              <ShieldCheck className="w-12 h-12 text-emerald-400" />
                          </div>
@@ -498,7 +600,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     </button>
 
                     <div className="flex gap-2">
-                        {[0, 1, 2, 3].map(i => (
+                        {[0, 1, 2, 3, 4].map(i => (
                             <div 
                                 key={i} 
                                 className={`h-1.5 rounded-full transition-all duration-300 ${i === wizardStep ? 'w-6 bg-indigo-500' : 'w-1.5 bg-slate-700'}`} 
@@ -508,7 +610,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
                     <button 
                         onClick={handleWizardNext}
-                        className={`text-indigo-400 hover:text-indigo-300 transition-colors text-sm font-bold flex items-center gap-1 ${wizardStep === totalWizardSteps - 1 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
+                        className={`text-indigo-400 hover:text-indigo-300 transition-colors text-sm font-bold flex items-center gap-1 ${wizardStep === totalWizardSteps - 1 || wizardStep === 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}
                     >
                         {txt.next} <ChevronLeft className="w-4 h-4 rotate-180" />
                     </button>
@@ -522,13 +624,12 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         <div className={getTransitionClass('setup')}>
             <div className="h-14 shrink-0 flex items-center justify-between px-4 gap-1 border-b border-slate-800 bg-slate-900/50 md:bg-transparent titlebar-drag-region">
                  <MuteButton />
-                 {/* Removed the Tutorial Button from here, moved to global controls */}
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-8 flex flex-col justify-center items-center">
                  <div className={`transition-all duration-300 w-full max-w-lg relative ${showPinMenu ? 'hidden' : 'block'}`}>
 
-                     {/* BACKGROUND DECORATION (New Request) */}
+                     {/* BACKGROUND DECORATION */}
                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -z-10 pointer-events-none select-none">
                         <Sparkles className="w-96 h-96 text-indigo-600/10 blur-md animate-pulse duration-[3000ms]" />
                      </div>
@@ -556,7 +657,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                         </div>
                      </div>
 
-                     {/* SECURITY BADGE (NEW) */}
+                     {/* SECURITY BADGE */}
                      <div className="bg-emerald-950/20 backdrop-blur-sm border border-emerald-500/20 rounded-xl p-3 mb-6 relative z-10 flex items-start gap-3 shadow-lg">
                          <div className="p-1.5 bg-emerald-500/10 rounded-lg shrink-0 mt-0.5">
                             <ShieldCheck className="w-4 h-4 text-emerald-400" />
@@ -647,7 +748,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                     </form>
                  </div>
 
-                 {/* PIN MENU OVERLAY (Inside Setup View) */}
+                 {/* PIN MENU OVERLAY */}
                  {showPinMenu && (
                      <div className="animate-in fade-in slide-in-from-right-4 duration-300 w-full max-w-lg relative z-20">
                          <button 
@@ -721,10 +822,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
       </div>
 
-      {/* TOP CONTROLS (Moved to end to ensure stacking on top) */}
+      {/* TOP CONTROLS */}
       <div className={`absolute top-0 right-0 z-[100] flex items-start gap-3 p-3 transition-all duration-500 pointer-events-auto no-drag ${isExiting ? 'opacity-0 -translate-y-4' : 'opacity-100'}`}>
         <div className="flex items-center gap-1 bg-slate-900/50 backdrop-blur border border-slate-800/60 rounded-lg p-0.5 pointer-events-auto no-drag">
-            {/* Info / Tutorial Button moved here */}
             <button 
                 onClick={() => navigate('welcome')}
                 className={`p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors ${currentView === 'welcome' ? 'text-indigo-400' : ''}`}
@@ -735,7 +835,6 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
             
             <div className="w-px h-3 bg-slate-700/50 mx-0.5"></div>
 
-            {/* NEW LANGUAGE SWITCHER */}
             <button 
                 onClick={() => setLanguage(language === 'ru' ? 'en' : 'ru')}
                 className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-white transition-colors text-[10px] font-bold uppercase min-w-[28px]"

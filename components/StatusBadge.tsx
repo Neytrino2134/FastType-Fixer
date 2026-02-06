@@ -23,7 +23,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
     'recording', 
     'done', 
     'error',
-    'script_fix' // New full badge
+    'script_fix',
+    'dict_check' // Added to full badge for better visibility
   ].includes(status);
 
   const getStatusConfig = () => {
@@ -36,9 +37,9 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
         };
       case 'dict_check':
         return {
-          icon: <BookOpen className="w-4 h-4 text-amber-400" />,
+          icon: <BookOpen className="w-4 h-4 text-yellow-400 animate-bounce" />, // Yellow
           text: t.statusDictCheck || "Dict Check",
-          color: 'bg-transparent border-transparent text-amber-400' // Icon style
+          color: 'bg-yellow-950/30 text-yellow-200 border-yellow-900/50' // Yellow Badge
         };
       case 'ai_fixing':
         return {

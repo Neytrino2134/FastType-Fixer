@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { SmartEditor, SmartEditorHandle } from './components/SmartEditor';
 import { WelcomeScreen } from './components/WelcomeScreen';
@@ -107,6 +106,14 @@ export default function App() {
     editorRef.current?.paste();
   }, []);
 
+  const handleHeaderCut = useCallback(() => {
+    editorRef.current?.cut();
+  }, []);
+
+  const handleHeaderClearAndPaste = useCallback(() => {
+    editorRef.current?.clearAndPaste();
+  }, []);
+
   // New: FULL WIPE HANDLER (Combines App logic + Editor logic)
   const performFullWipe = useCallback(() => {
       // 1. Wipe App Logic State (Lock, Clipboard, Stats, LocalStorage keys)
@@ -128,8 +135,9 @@ export default function App() {
   const getTransitionClass = (index: number) => {
     const isActive = index === activeIndex;
     // Base class: Absolute positioning to stack tabs on top of each other
-    // Transition: Scale and Opacity for "Zoom from darkness" effect
-    const baseClass = "absolute inset-0 w-full h-full flex flex-col transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] will-change-transform backface-hidden";
+    // OPTIMIZATION: Removed 'transition-all' and replaced with specific properties.
+    // 'width' and 'height' should NOT animate during window resize.
+    const baseClass = "absolute inset-0 w-full h-full flex flex-col transition-[opacity,transform,filter] duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] will-change-transform backface-hidden";
     
     if (isActive) {
         // Active: Normal scale, fully opaque, sharp, clickable
@@ -171,7 +179,7 @@ export default function App() {
         {/* 3. MAIN APP LAYER */}
         {state.appState === 'app' && (
              <div 
-                className={`fixed inset-0 w-full h-full flex flex-col bg-slate-950 text-slate-200 overflow-hidden transition-all duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)] supports-[height:100dvh]:h-[100dvh] ${
+                className={`fixed inset-0 w-full h-full flex flex-col bg-slate-950 text-slate-200 overflow-hidden transition-[opacity,transform,filter] duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)] supports-[height:100dvh]:h-[100dvh] ${
                     // Prioritize Exit animation, then check Entry animation, but ONLY if global content is visible
                     !isContentVisible 
                         ? 'opacity-0 scale-95 blur-md brightness-50' // Initial state coming from loading
@@ -209,6 +217,9 @@ export default function App() {
                 onClearText={handleHeaderClear}
                 onCopyText={handleHeaderCopy}
                 onPasteText={handleHeaderPaste}
+                onCutText={handleHeaderCut}
+                onClearAndPaste={handleHeaderClearAndPaste}
+                onUpdateSettings={actions.setSettings} // Added Prop
               />
 
               {/* Global Notification Layer */}
@@ -229,11 +240,13 @@ export default function App() {
                         language={state.language}
                         onUpdateSettings={actions.setSettings}
                         onResetKey={actions.handleResetKey}
+                        onUpdateApiKey={actions.handleUpdateKey} 
                         hasLock={state.hasLock}
                         onRemoveLock={actions.handleRemoveLock}
                         onSetLock={actions.handleSetLock} 
                         onClose={actions.toggleSettings}
                         isVisible={state.showSettings}
+                        onVerifyPin={actions.validatePin}
                       />
                   </div>
               </div>
@@ -259,6 +272,8 @@ export default function App() {
                         onToggleProcessing={actions.handleToggleProcessing}
                         onInteraction={actions.closeOverlays}
                         onHistoryUpdate={handleHistoryUpdate}
+                        showClipboard={state.showClipboard}
+                        onToggleClipboard={actions.toggleClipboard}
                     />
                     
                     <ClipboardHistory 

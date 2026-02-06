@@ -11,11 +11,16 @@ export interface CorrectionSettings {
   silenceThreshold: number; 
   audioModel: 'gemini-2.5-flash' | 'gemini-2.5-pro';
   economyMode: boolean; 
+  dictionaryCheck: boolean; // New: Toggle for Dictionary Layer
   // Visualizer Settings
   visualizerLowCut: number; // 0-20
   visualizerHighCut: number; // 20-128
   visualizerAmp: number; // 0.5 - 3.0 multiplier
-  visualizerStyle: 'classic' | 'bars' | 'circular' | 'wave'; // New Setting
+  visualizerStyle: 'classic' | 'bars' | 'circular' | 'wave';
+  visualizerNorm: boolean; // New: Normalization
+  visualizerGravity: number; // New: Gravity (0.1 - 10)
+  visualizerMirror: boolean; // New: Mirror from center
+  developerMode: boolean;
 }
 
 export interface ClipboardItem {
@@ -35,7 +40,8 @@ export interface HistorySnapshot {
   tags?: string[];
   finalizedSentences?: string[];
   aiFixedSegments?: string[]; 
-  dictatedSegments?: string[]; 
+  dictatedSegments?: string[];
+  unknownSegments?: string[]; // New: Specific words failing dict check
 }
 
 export interface EditorState {

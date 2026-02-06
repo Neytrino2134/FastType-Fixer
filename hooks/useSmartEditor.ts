@@ -1,7 +1,6 @@
 
-
 import React, { useRef, useEffect, useCallback, useState } from 'react';
-import { transcribeAudio, enhanceFullText } from '../services/geminiService';
+import { transcribeAudio, enhanceFullText, recognizeTextFromImage } from '../services/geminiService';
 import { ProcessingStatus, CorrectionSettings, Language, VisualizerStatus } from '../types';
 import { useEditorHistory } from './useEditorHistory';
 import { useAudioRecorder } from './useAudioRecorder';
@@ -47,12 +46,14 @@ export const useSmartEditor = ({
     committedLength, setCommittedLength, 
     correctedLength, setCorrectedLength,
     checkedLength, setCheckedLength,
+    checkingLength, setCheckingLength, 
     finalizedSentences, addFinalizedSentence, 
     aiFixedSegments, addAiFixedSegment,
     dictatedSegments, addDictatedSegment,
+    unknownSegments, addUnknownSegments, // NEW
     saveCheckpoint, saveCheckpoints, undo, redo, canUndo, canRedo,
     history, historyIndex, jumpTo, lastUpdate,
-    clearHistory // NEW
+    clearHistory
   } = useEditorHistory();
 
   // 2. Refs for Async Access
@@ -60,6 +61,7 @@ export const useSmartEditor = ({
   const committedLengthRef = useRef(committedLength);
   const correctedLengthRef = useRef(correctedLength);
   const checkedLengthRef = useRef(checkedLength);
+  const checkingLengthRef = useRef(checkingLength);
   const settingsRef = useRef(settings);
   const statusRef = useRef(status);
   
@@ -74,6 +76,7 @@ export const useSmartEditor = ({
   useEffect(() => { committedLengthRef.current = committedLength; }, [committedLength]);
   useEffect(() => { correctedLengthRef.current = correctedLength; }, [correctedLength]);
   useEffect(() => { checkedLengthRef.current = checkedLength; }, [checkedLength]);
+  useEffect(() => { checkingLengthRef.current = checkingLength; }, [checkingLength]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   
   // Status Sync
@@ -102,26 +105,20 @@ export const useSmartEditor = ({
   const { addNotification } = useNotification();
   const [visualizerStatus, setVisualizerStatus] = useState<VisualizerStatus>('idle');
   const [isAnalyzing, setIsAnalyzing] = useState(false); // New State for UI stacking
+  const [isDevRecording, setIsDevRecording] = useState(false); // New State for Dev Mode
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const pendingTranscriptionsCount = useRef(0);
 
   /**
    * CORE TEXT UPDATE LOGIC
-   * Used by typing (onChange) and programmatic updates (Paste/Clear)
    */
   const handleTextUpdate = useCallback((newVal: string) => {
     const oldVal = textRef.current;
     
     setText(newVal);
-    // notifyActivity is called inside useTextProcessor usually, but this is the raw handler
-    // We will let useTextProcessor handle the activity notification via its own hook logic
-    // OR we trigger it if we had access. 
-    // *Correction*: We can't access notifyActivity here before initializing useTextProcessor.
-    // However, useTextProcessor watches textRef? No, it has its own logic.
-    // We will manually trigger activity in the handleChange wrapper.
 
-    // Clear existing typing timers
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     if (manualSaveTimeoutRef.current) clearTimeout(manualSaveTimeoutRef.current);
     
@@ -130,29 +127,28 @@ export const useSmartEditor = ({
         setCommittedLength(0);
         setCorrectedLength(0);
         setCheckedLength(0);
+        setCheckingLength(0);
         
         onStatusChange(settings.enabled ? 'idle' : 'paused');
         
-        // Save history immediately on clear so we can Undo it
         saveCheckpoint('', 0, 0, ['raw']);
         return;
     }
     
     // --- 2. DETECT PASTE / CUT (Large changes) ---
-    // If length difference is significant (> 5 chars), assume paste/cut and save immediately
     if (Math.abs(newVal.length - oldVal.length) > 5) {
         const newChecked = Math.min(checkedLengthRef.current, newVal.length);
         const newCorrected = Math.min(correctedLengthRef.current, newVal.length);
         const newCommitted = Math.min(committedLengthRef.current, newVal.length);
         
+        if (checkingLengthRef.current > newVal.length) setCheckingLength(0);
+
         saveCheckpoint(newVal, newCommitted, newCorrected, ['raw']);
     } 
     else {
-        // --- 3. DEBOUNCE SAVE FOR REGULAR TYPING ---
-        // Save checkpoint 1s after user stops typing to ensure manual edits are undoable
+        // --- 3. DEBOUNCE SAVE ---
         manualSaveTimeoutRef.current = setTimeout(() => {
              const currentT = textRef.current;
-             // Only save if it's not the same as the last history item (saveCheckpoint handles dupe check)
              saveCheckpoint(
                 currentT, 
                 committedLengthRef.current, 
@@ -168,7 +164,6 @@ export const useSmartEditor = ({
 
     typingTimeoutRef.current = setTimeout(() => {
         if (statusRef.current === 'typing') {
-            // Revert to paused if disabled, else idle
             onStatusChange(settings.enabled ? 'idle' : 'paused');
         }
     }, TYPING_TIMEOUT_MS);
@@ -179,11 +174,11 @@ export const useSmartEditor = ({
       diffIndex++;
     }
 
-    // Reset pointers to the point of edit
     if (diffIndex < checkedLengthRef.current) setCheckedLength(diffIndex);
+    if (diffIndex < checkingLengthRef.current) setCheckingLength(diffIndex); 
     if (diffIndex < correctedLengthRef.current) setCorrectedLength(diffIndex);
     if (diffIndex < committedLengthRef.current) setCommittedLength(Math.max(0, diffIndex));
-  }, [saveCheckpoint, onStatusChange, setCommittedLength, setCorrectedLength, setCheckedLength, setText, settings.enabled]);
+  }, [saveCheckpoint, onStatusChange, setCommittedLength, setCorrectedLength, setCheckedLength, setCheckingLength, setText, settings.enabled]);
 
   // SMART CURSOR HANDLER FOR AUTO-FORMAT
   const handleAutoFormat = useCallback((newText: string) => {
@@ -195,18 +190,12 @@ export const useSmartEditor = ({
 
     const selectionStart = textarea.selectionStart;
     const currentText = textRef.current;
-
-    // Logic: Calculate how the length changed *before* the cursor
-    // We run the same mini-script logic on the text "prefix" (up to cursor)
-    // The length of the processed prefix is where the cursor should be.
     const prefix = currentText.substring(0, selectionStart);
     const processedPrefix = runMiniScripts(prefix);
     const newCursorPos = processedPrefix.length;
 
-    // Apply Update
     handleTextUpdate(newText);
 
-    // Restore Cursor
     requestAnimationFrame(() => {
         if (textareaRef.current) {
             textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
@@ -215,11 +204,12 @@ export const useSmartEditor = ({
   }, [handleTextUpdate]);
 
   // New Text Processor (The Brain)
-  const { notifyActivity, reset: resetProcessor } = useTextProcessor({
+  const { notifyActivity, reset: resetProcessor, processingOverlay } = useTextProcessor({
       textRef,
       committedLengthRef,
       correctedLengthRef,
       checkedLengthRef,
+      checkingLengthRef, 
       settingsRef,
       statusRef,
       language,
@@ -227,14 +217,16 @@ export const useSmartEditor = ({
       setCorrectedLength,
       setCommittedLength,
       setCheckedLength,
+      setCheckingLength, 
       finalizedSentences, 
       addFinalizedSentence,
       addAiFixedSegment,
+      addUnknownSegments, // Pass to processor
       saveCheckpoint,
       saveCheckpoints,
       onStatsUpdate,
       onStatusChange,
-      onAutoFormat: handleAutoFormat, // Inject Smart Cursor Handler
+      onAutoFormat: handleAutoFormat,
       workerRef
   });
 
@@ -276,12 +268,21 @@ export const useSmartEditor = ({
       onStatusChange('idle');
       setVisualizerStatus('idle');
       setIsAnalyzing(false);
+      setCheckingLength(0);
     }
-  }, [resetSignal, onStatusChange, resetProcessor]);
+  }, [resetSignal, onStatusChange, resetProcessor, setCheckingLength]);
 
   // MONITOR RECORDING STATE
   useEffect(() => {
     if (!isRecording && status === 'recording') {
+        // If we were in dev mode, just go back to idle
+        if (isDevRecording) {
+            setIsDevRecording(false);
+            onStatusChange(settings.enabled ? 'idle' : 'paused');
+            setVisualizerStatus('idle');
+            return;
+        }
+
         if (pendingTranscriptionsCount.current > 0) {
             onStatusChange('transcribing');
         } else {
@@ -289,7 +290,7 @@ export const useSmartEditor = ({
         }
         setVisualizerStatus('idle');
     }
-  }, [isRecording, status, onStatusChange]);
+  }, [isRecording, status, onStatusChange, isDevRecording, settings.enabled]);
 
   const handleEnhance = async () => {
       const t = getTranslation(language);
@@ -317,6 +318,7 @@ export const useSmartEditor = ({
               setCommittedLength(len);
               setCorrectedLength(len);
               setCheckedLength(len);
+              setCheckingLength(len);
               
               addAiFixedSegment(normalizeBlock(enhanced));
               
@@ -328,6 +330,7 @@ export const useSmartEditor = ({
               setCommittedLength(len);
               setCorrectedLength(len);
               setCheckedLength(len);
+              setCheckingLength(len);
           }
       } catch (e) {
           console.error("Enhance failed", e);
@@ -337,15 +340,86 @@ export const useSmartEditor = ({
       }
   };
 
-  /**
-   * EVENT HANDLER: Typing
-   */
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     handleTextUpdate(e.target.value);
-    notifyActivity(); // Notify processor that user is active
+    notifyActivity();
   };
 
-  // Audio Chunk Handling
+  // Generic Media Handler (Audio & Image)
+  const handleMediaFile = useCallback((file: File) => {
+      const reader = new FileReader();
+      
+      const isAudio = file.type.startsWith('audio/');
+      const isImage = file.type.startsWith('image/');
+
+      if (!isAudio && !isImage) {
+          addNotification(language === 'ru' ? "Неподдерживаемый формат файла" : "Unsupported file format", 'error');
+          return;
+      }
+
+      pendingTranscriptionsCount.current += 1;
+      setIsAnalyzing(true);
+      if (statusRef.current !== 'recording') {
+          onStatusChange('transcribing');
+      }
+
+      reader.onload = async (e) => {
+          if (e.target?.result) {
+              const base64 = (e.target.result as string).split(',')[1];
+              try {
+                  let resultText = "";
+                  
+                  if (isAudio) {
+                      resultText = await transcribeAudio(base64, file.type, language, settingsRef.current.audioModel);
+                  } else if (isImage) {
+                      resultText = await recognizeTextFromImage(base64, file.type, language);
+                  }
+
+                  if (resultText && resultText.trim()) {
+                      const currentText = textRef.current;
+                      const separator = currentText.trim().length > 0 && !currentText.endsWith(' ') ? ' ' : '';
+                      const newTextValue = currentText + separator + resultText;
+                      const newLen = newTextValue.length;
+
+                      setText(newTextValue);
+                      notifyActivity();
+
+                      addDictatedSegment(normalizeBlock(resultText));
+
+                      setCorrectedLength(newLen);
+                      setCheckedLength(newLen);
+                      setCheckingLength(newLen);
+
+                      onStatsUpdate(1);
+                      saveCheckpoint(newTextValue, committedLengthRef.current, newLen, ['dictated', 'raw_dictation']);
+                      
+                      setTimeout(() => {
+                        if (textareaRef.current) {
+                            textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+                            if (backdropRef.current) {
+                                 backdropRef.current.scrollTop = textareaRef.current.scrollHeight;
+                            }
+                        }
+                      }, 10);
+                  }
+              } catch (e) {
+                  console.error("Media processing failed", e);
+                  addNotification(language === 'ru' ? "Ошибка обработки файла" : "File processing error", 'error');
+              } finally {
+                  pendingTranscriptionsCount.current -= 1;
+                  if (pendingTranscriptionsCount.current === 0) {
+                      setIsAnalyzing(false);
+                      if (statusRef.current === 'transcribing') {
+                          onStatusChange(settings.enabled ? 'idle' : 'paused');
+                      }
+                  }
+              }
+          }
+      };
+      reader.readAsDataURL(file);
+  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, addNotification]);
+
+  // Audio Chunk Handling (Live Recording)
   const handleAudioChunk = useCallback(async (base64: string, mimeType: string) => {
     pendingTranscriptionsCount.current += 1;
     setIsAnalyzing(true);
@@ -370,6 +444,7 @@ export const useSmartEditor = ({
 
             setCorrectedLength(newLen);
             setCheckedLength(newLen);
+            setCheckingLength(newLen);
 
             onStatsUpdate(1);
             
@@ -395,29 +470,20 @@ export const useSmartEditor = ({
             }
         }
     }
-  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength]);
-
-  // NEW: Handle File Upload Transcription
-  const handleAudioFile = useCallback((file: File) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-          if (e.target?.result) {
-              const base64 = (e.target.result as string).split(',')[1];
-              await handleAudioChunk(base64, file.type);
-          }
-      };
-      reader.readAsDataURL(file);
-  }, [handleAudioChunk]);
+  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength]);
 
   const toggleRecording = useCallback(async () => {
+    // If we were doing a DEV recording, stop it and ensure clean state
+    if (isDevRecording) {
+        await stopRecording();
+        setIsDevRecording(false);
+        onStatusChange(settings.enabled ? 'idle' : 'paused');
+        return;
+    }
+
     if (isRecording) {
         await stopRecording();
     } else {
-        // Auto-Unpause: If currently paused, re-enable the processor
-        if (!settingsRef.current.enabled) {
-            onToggleProcessing();
-        }
-
         resetProcessor();
 
         const success = await startRecording(
@@ -429,17 +495,46 @@ export const useSmartEditor = ({
             setVisualizerStatus('listening');
         }
     }
-  }, [isRecording, stopRecording, startRecording, onStatusChange, handleAudioChunk, resetProcessor, onToggleProcessing]);
+  }, [isRecording, stopRecording, startRecording, onStatusChange, handleAudioChunk, resetProcessor, isDevRecording, settings.enabled]);
+
+  // New: Developer Mode Toggle (Visual Only)
+  const toggleDevRecording = useCallback(async () => {
+     // If normal recording is active, stop it
+     if (isRecording && !isDevRecording) {
+         await stopRecording();
+         return;
+     }
+
+     if (isDevRecording) {
+         await stopRecording();
+         setIsDevRecording(false);
+         onStatusChange(settings.enabled ? 'idle' : 'paused');
+     } else {
+         resetProcessor();
+         // Pass empty callback for chunks so no data is sent/processed
+         const success = await startRecording(
+             async () => {}, // NO-OP
+             (newStatus) => setVisualizerStatus(newStatus)
+         );
+         if (success) {
+             setIsDevRecording(true);
+             onStatusChange('recording');
+             setVisualizerStatus('listening');
+         }
+     }
+  }, [isRecording, isDevRecording, stopRecording, startRecording, onStatusChange, resetProcessor, settings.enabled]);
 
   return {
       text,
       committedLength,
       correctedLength,
       checkedLength,
+      checkingLength, 
       processedLength: correctedLength, 
       finalizedSentences,
       aiFixedSegments,
       dictatedSegments, 
+      unknownSegments, // EXPORT
       textareaRef,
       backdropRef,
       isBusy: status !== 'idle' && status !== 'typing' && status !== 'paused' && status !== 'done',
@@ -464,6 +559,9 @@ export const useSmartEditor = ({
       lastHistoryUpdate: lastUpdate, 
       clearHistory,
       setFullText: handleTextUpdate,
-      handleAudioFile // Exported for EditorToolbar
+      handleMediaFile, 
+      toggleDevRecording, 
+      isDevRecording,
+      processingOverlay // Pass to UI
   };
 };

@@ -20,8 +20,9 @@ export const useEditorHistory = () => {
           history: parsed.history || [],
           historyIndex: parsed.historyIndex || 0,
           finalizedSentences: parsed.finalizedSentences || [],
-          aiFixedSegments: parsed.aiFixedSegments || [], // New state
-          dictatedSegments: parsed.dictatedSegments || [] // New state
+          aiFixedSegments: parsed.aiFixedSegments || [], 
+          dictatedSegments: parsed.dictatedSegments || [],
+          unknownSegments: parsed.unknownSegments || [] // New state
         };
       }
     } catch (e) {
@@ -36,6 +37,10 @@ export const useEditorHistory = () => {
   const [committedLength, setCommittedLength] = useState(savedState?.committedLength || 0); // Green
   const [correctedLength, setCorrectedLength] = useState(savedState?.correctedLength || 0); // Blue/Purple Boundary
   const [checkedLength, setCheckedLength] = useState(savedState?.checkedLength || 0);       // Red Boundary
+  
+  // NEW: Transient state for yellow "Checking" highlight. Not persisted.
+  const [checkingLength, setCheckingLength] = useState(0); 
+
   const [lastUpdate, setLastUpdate] = useState(Date.now()); // Signal for UI blinking
 
   // Tracks phrases specifically fixed by AI to color them Purple
@@ -46,6 +51,11 @@ export const useEditorHistory = () => {
   // Tracks phrases specifically dictated to color them Orange
   const [dictatedSegments, setDictatedSegments] = useState<Set<string>>(
       new Set(savedState?.dictatedSegments || [])
+  );
+
+  // Tracks individual words not found in dictionary (for Red highlighting)
+  const [unknownSegments, setUnknownSegments] = useState<Set<string>>(
+      new Set(savedState?.unknownSegments || [])
   );
 
   const [finalizedSentences, setFinalizedSentences] = useState<Set<string>>(
@@ -67,7 +77,8 @@ export const useEditorHistory = () => {
       tags: [],
       finalizedSentences: [],
       aiFixedSegments: [],
-      dictatedSegments: []
+      dictatedSegments: [],
+      unknownSegments: []
     }]
   );
   
@@ -86,10 +97,11 @@ export const useEditorHistory = () => {
       historyIndex,
       finalizedSentences: Array.from(finalizedSentences),
       aiFixedSegments: Array.from(aiFixedSegments),
-      dictatedSegments: Array.from(dictatedSegments)
+      dictatedSegments: Array.from(dictatedSegments),
+      unknownSegments: Array.from(unknownSegments)
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-  }, [text, committedLength, correctedLength, checkedLength, history, historyIndex, finalizedSentences, aiFixedSegments, dictatedSegments]);
+  }, [text, committedLength, correctedLength, checkedLength, history, historyIndex, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments]);
 
   useEffect(() => {
     setHistoryIndex((prev: number) => Math.min(prev, history.length - 1));
@@ -128,11 +140,20 @@ export const useEditorHistory = () => {
       }
   }, []);
 
-  // NEW: Save multiple snapshots atomically to prevent race conditions during complex AI updates
+  const addUnknownSegments = useCallback((words: string[]) => {
+      if (words.length > 0) {
+          setUnknownSegments(prev => {
+              const newSet = new Set(prev);
+              words.forEach(w => newSet.add(w.toLowerCase()));
+              return newSet;
+          });
+      }
+  }, []);
+
+  // Save multiple snapshots atomically
   const saveCheckpoints = useCallback((snapshots: { text: string, committedLength: number, correctedLength: number, checkedLength?: number, tags: string[] }[]) => {
     if (isUndoingRef.current || snapshots.length === 0) return;
 
-    // Use current state directly to avoid stale closures in functional updates during sequential calls
     let newHistory = history.slice(0, historyIndex + 1);
     let hasChanges = false;
 
@@ -157,7 +178,8 @@ export const useEditorHistory = () => {
             tags: snap.tags,
             finalizedSentences: Array.from(finalizedSentences),
             aiFixedSegments: Array.from(aiFixedSegments),
-            dictatedSegments: Array.from(dictatedSegments)
+            dictatedSegments: Array.from(dictatedSegments),
+            unknownSegments: Array.from(unknownSegments)
           });
           hasChanges = true;
     }
@@ -168,9 +190,9 @@ export const useEditorHistory = () => {
 
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
-    setLastUpdate(Date.now()); // Signal UI
+    setLastUpdate(Date.now()); 
 
-  }, [history, historyIndex, finalizedSentences, aiFixedSegments, dictatedSegments, checkedLength]);
+  }, [history, historyIndex, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments, checkedLength]);
 
   const saveCheckpoint = useCallback((newText: string, newCommitted: number, newCorrected: number, tags: string[] = []) => {
       saveCheckpoints([{ text: newText, committedLength: newCommitted, correctedLength: newCorrected, tags }]);
@@ -185,16 +207,12 @@ export const useEditorHistory = () => {
       setCommittedLength(prevState.committedLength);
       setCorrectedLength(prevState.correctedLength ?? prevState.processedLength);
       setCheckedLength(prevState.checkedLength ?? prevState.correctedLength ?? prevState.processedLength);
+      setCheckingLength(0);
       
-      if (prevState.finalizedSentences) {
-          setFinalizedSentences(new Set(prevState.finalizedSentences));
-      }
-      if (prevState.aiFixedSegments) {
-          setAiFixedSegments(new Set(prevState.aiFixedSegments));
-      }
-      if (prevState.dictatedSegments) {
-          setDictatedSegments(new Set(prevState.dictatedSegments));
-      }
+      if (prevState.finalizedSentences) setFinalizedSentences(new Set(prevState.finalizedSentences));
+      if (prevState.aiFixedSegments) setAiFixedSegments(new Set(prevState.aiFixedSegments));
+      if (prevState.dictatedSegments) setDictatedSegments(new Set(prevState.dictatedSegments));
+      if (prevState.unknownSegments) setUnknownSegments(new Set(prevState.unknownSegments));
       
       setHistoryIndex(historyIndex - 1);
 
@@ -213,16 +231,12 @@ export const useEditorHistory = () => {
       setCommittedLength(nextState.committedLength);
       setCorrectedLength(nextState.correctedLength ?? nextState.processedLength);
       setCheckedLength(nextState.checkedLength ?? nextState.correctedLength ?? nextState.processedLength);
+      setCheckingLength(0);
 
-      if (nextState.finalizedSentences) {
-          setFinalizedSentences(new Set(nextState.finalizedSentences));
-      }
-      if (nextState.aiFixedSegments) {
-          setAiFixedSegments(new Set(nextState.aiFixedSegments));
-      }
-      if (nextState.dictatedSegments) {
-          setDictatedSegments(new Set(nextState.dictatedSegments));
-      }
+      if (nextState.finalizedSentences) setFinalizedSentences(new Set(nextState.finalizedSentences));
+      if (nextState.aiFixedSegments) setAiFixedSegments(new Set(nextState.aiFixedSegments));
+      if (nextState.dictatedSegments) setDictatedSegments(new Set(nextState.dictatedSegments));
+      if (nextState.unknownSegments) setUnknownSegments(new Set(nextState.unknownSegments));
 
       setHistoryIndex(historyIndex + 1);
 
@@ -241,16 +255,12 @@ export const useEditorHistory = () => {
        setCommittedLength(state.committedLength);
        setCorrectedLength(state.correctedLength ?? state.processedLength);
        setCheckedLength(state.checkedLength ?? state.correctedLength ?? state.processedLength);
+       setCheckingLength(0); 
        
-       if (state.finalizedSentences) {
-           setFinalizedSentences(new Set(state.finalizedSentences));
-       }
-       if (state.aiFixedSegments) {
-           setAiFixedSegments(new Set(state.aiFixedSegments));
-       }
-       if (state.dictatedSegments) {
-           setDictatedSegments(new Set(state.dictatedSegments));
-       }
+       if (state.finalizedSentences) setFinalizedSentences(new Set(state.finalizedSentences));
+       if (state.aiFixedSegments) setAiFixedSegments(new Set(state.aiFixedSegments));
+       if (state.dictatedSegments) setDictatedSegments(new Set(state.dictatedSegments));
+       if (state.unknownSegments) setUnknownSegments(new Set(state.unknownSegments));
 
        setHistoryIndex(index);
        
@@ -263,7 +273,6 @@ export const useEditorHistory = () => {
   const clearHistory = useCallback(() => {
     if (history.length === 0) return;
     
-    // We snapshot the CURRENT visible text as the new start
     const currentState = history[historyIndex];
     
     const newState = {
@@ -274,6 +283,7 @@ export const useEditorHistory = () => {
     
     setHistory([newState]);
     setHistoryIndex(0);
+    setCheckingLength(0);
     setLastUpdate(Date.now());
   }, [history, historyIndex]);
 
@@ -286,14 +296,18 @@ export const useEditorHistory = () => {
     setCorrectedLength,
     checkedLength,
     setCheckedLength,
+    checkingLength, 
+    setCheckingLength, 
     finalizedSentences,
     addFinalizedSentence,
     aiFixedSegments,
     addAiFixedSegment,
     dictatedSegments,
     addDictatedSegment,
+    unknownSegments, // Export
+    addUnknownSegments, // Export
     saveCheckpoint,
-    saveCheckpoints, // EXPORTED
+    saveCheckpoints, 
     undo: performUndo,
     redo: performRedo,
     jumpTo,

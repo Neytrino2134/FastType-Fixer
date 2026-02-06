@@ -1,5 +1,4 @@
 
-
 // Standalone Worker for Dictionary Checks
 // Receives dictionary data from the main thread to ensure consistency
 
@@ -34,26 +33,31 @@ self.onmessage = (e: MessageEvent) => {
     }
 
     if (type === 'CHECK_CHUNK') {
-        // Return boolean: Does this chunk have errors?
+        // Updated: Return list of unknown words
         if (!text) {
-             self.postMessage({ type: 'CHECK_RESULT', hasErrors: false });
+             self.postMessage({ type: 'CHECK_RESULT', unknownWords: [] });
              return;
         }
 
-        const tokens = text.split(/([ \n\t.,!?;:()""''«»—]+)/);
-        let hasErrors = false;
+        // Expanded splitter to handle hyphens, slashes, underscores as separators
+        const tokens = text.split(/([ \n\t.,!?;:()""''«»—\-\/_+]+)/);
+        const unknownWords: string[] = [];
 
         for (const token of tokens) {
             if (!token.trim()) continue;
             // If token is just separators, skip
-            if (/^[ \n\t.,!?;:()""''«»—]+$/.test(token)) continue;
+            if (/^[ \n\t.,!?;:()""''«»—\-\/_+]+$/.test(token)) continue;
+
+            // RULE: Ignore short words (1, 2, or 3 letters)
+            // They are considered "correct" by default to prevent false positives on prepositions/initials
+            if (token.length <= 3) continue;
 
             if (!isWordInDictionary(token)) {
-                hasErrors = true;
-                break;
+                // Return original "cleaned" form for the Set
+                unknownWords.push(cleanWord(token));
             }
         }
 
-        self.postMessage({ type: 'CHECK_RESULT', hasErrors });
+        self.postMessage({ type: 'CHECK_RESULT', unknownWords });
     }
 };

@@ -1,5 +1,6 @@
-import React, { useRef, useState } from 'react';
-import { Lock, CheckCheck, Undo2, Redo2, Square, Mic, Wand2, Loader2, Clock, Upload, Send, FileAudio, X } from 'lucide-react';
+
+import React, { useRef, useState, useImperativeHandle, forwardRef } from 'react';
+import { Lock, CheckCheck, Undo2, Redo2, Square, Mic, Wand2, Loader2, Clock, Upload, Send, FileAudio, X, TestTube, Image as ImageIcon, File, ClipboardList } from 'lucide-react';
 import { getTranslation } from '../../utils/i18n';
 import { Language, ProcessingStatus } from '../../types';
 import { Tooltip } from '../Tooltip';
@@ -21,9 +22,18 @@ interface EditorToolbarProps {
   autoStopCountdown?: number | null;
   onHistoryClick: () => void;
   isHistoryOpen: boolean;
+  developerMode?: boolean;
+  onDevRecord?: () => void;
+  isDevRecording?: boolean;
+  showClipboard: boolean;
+  onToggleClipboard: () => void;
 }
 
-export const EditorToolbar: React.FC<EditorToolbarProps> = ({
+export interface EditorToolbarHandle {
+    setFile: (file: File) => void;
+}
+
+export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>(({
   textLength,
   committedLength,
   processedLength,
@@ -39,13 +49,25 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onFileUpload,
   autoStopCountdown,
   onHistoryClick,
-  isHistoryOpen
-}) => {
+  isHistoryOpen,
+  developerMode = false,
+  onDevRecord,
+  isDevRecording = false,
+  showClipboard,
+  onToggleClipboard
+}, ref) => {
   const t = getTranslation(language);
   const isEnhancing = status === 'enhancing';
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Expose setFile to parent via ref
+  useImperativeHandle(ref, () => ({
+      setFile: (file: File) => {
+          setSelectedFile(file);
+      }
+  }));
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -138,24 +160,60 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             </Tooltip>
         </div>
 
-        <Tooltip content={status === 'recording' ? t.btnStop : t.btnRecord} side="top">
+        {/* CLIPBOARD GROUP (NEW) */}
+        <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700 shadow-lg">
+            <Tooltip content={t.clipboardTitle} side="top">
+                <button
+                    onClick={onToggleClipboard}
+                    className={`p-2 md:p-1.5 rounded transition-colors touch-manipulation ${showClipboard ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+                >
+                    <ClipboardList className="w-5 h-5 md:w-4 md:h-4" />
+                </button>
+            </Tooltip>
+        </div>
+        
+        {/* DEV RECORDING BUTTON (Conditional) */}
+        {developerMode && onDevRecord && (
+            <Tooltip content={t.btnDevRecord || "Dictate (DEV)"} side="top">
+                <button
+                    onClick={onDevRecord}
+                    className={`flex items-center justify-center p-2.5 md:p-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${
+                        isDevRecording 
+                        ? 'bg-fuchsia-900/50 text-fuchsia-400 border-fuchsia-500/50 hover:bg-fuchsia-900/70 animate-pulse' 
+                        : 'bg-slate-800 text-fuchsia-500 border-slate-700 hover:bg-slate-700'
+                    }`}
+                >
+                    {isDevRecording ? <Square className="w-5 h-5 md:w-4 md:h-4 fill-current" /> : <TestTube className="w-5 h-5 md:w-4 md:h-4" />}
+                </button>
+            </Tooltip>
+        )}
+
+        <Tooltip content={status === 'recording' && !isDevRecording ? t.btnStop : t.btnRecord} side="top">
             <button
             onClick={onRecord}
-            // Always enabled to allow immediate interruption/recording
-            className={`flex items-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${
-                status === 'recording' 
-                ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30 animate-pulse' 
-                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+            disabled={isDevRecording} // Disable real recording if dev recording active
+            className={`flex items-center justify-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${
+                status === 'recording' && !isDevRecording
+                ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30' 
+                : isDevRecording ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
             }`}
             >
-            {status === 'recording' ? (
-                <>
-                <Square className="w-5 h-5 md:w-4 md:h-4 fill-current" />
-                <span className="hidden sm:inline">{t.btnStop}</span>
-                {typeof autoStopCountdown === 'number' && autoStopCountdown <= 5 && (
-                   <span className="font-mono font-bold tabular-nums">({autoStopCountdown})</span>
-                )}
-                </>
+            {status === 'recording' && !isDevRecording ? (
+                <div className="flex items-center">
+                    {/* Fixed Action Area */}
+                    <div className="flex items-center gap-2">
+                        <Square className="w-5 h-5 md:w-4 md:h-4 fill-current animate-pulse" />
+                        <span className="hidden sm:inline font-semibold">{t.btnStop}</span>
+                    </div>
+                    
+                    {/* Divider */}
+                    <div className="mx-2 h-4 w-px bg-red-400/40"></div>
+                    
+                    {/* Fixed Timer Slot - Prevents resizing jitter */}
+                    <div className="w-4 flex justify-center text-xs font-mono font-bold tabular-nums">
+                        {typeof autoStopCountdown === 'number' ? autoStopCountdown : ''}
+                    </div>
+                </div>
             ) : (
                 <>
                 <Mic className="w-5 h-5 md:w-4 md:h-4" />
@@ -165,18 +223,18 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             </button>
         </Tooltip>
 
-        {/* File Upload Group */}
+        {/* File Upload Group (Audio / Image) */}
         <div className="flex items-center gap-1">
              <input
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="audio/*"
+                accept="audio/*,image/*" // Updated accept
                 onChange={handleFileChange}
              />
              
              {!selectedFile ? (
-                <Tooltip content={language === 'ru' ? "Загрузить аудио" : "Upload Audio"} side="top">
+                <Tooltip content={t.uploadMedia || "Upload Audio/Image"} side="top">
                     <button
                         onClick={() => fileInputRef.current?.click()}
                         disabled={isBusy}
@@ -191,13 +249,13 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                         <X className="w-4 h-4" />
                     </button>
                     <span className="text-xs text-slate-300 max-w-[80px] truncate flex items-center gap-1">
-                        <FileAudio className="w-3 h-3 shrink-0" />
+                        {selectedFile.type.startsWith('image/') ? <ImageIcon className="w-3 h-3 shrink-0" /> : <FileAudio className="w-3 h-3 shrink-0" />}
                         {selectedFile.name}
                     </span>
                     <button 
                         onClick={handleSendFile}
                         className="ml-1 p-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded shadow-sm"
-                        title={language === 'ru' ? "Отправить" : "Transcribe"}
+                        title={language === 'ru' ? "Отправить" : "Process"}
                     >
                         <Send className="w-3.5 h-3.5" />
                     </button>
@@ -227,4 +285,4 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
       </div>
     </div>
   );
-};
+});

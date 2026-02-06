@@ -1,16 +1,23 @@
 
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { fixTyposOnly, finalizeText, fixAndFinalize } from '../services/geminiService';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
 import { ensureProperSpacing, formatPunctuationOnTheFly } from '../utils/textCleaner';
 import { splitIntoBlocks, normalizeBlock } from '../utils/textStructure';
 import { runMiniScripts } from '../utils/miniScripts';
 
+export interface ProcessingOverlay {
+    start: number;
+    end: number;
+    type: 'fixing' | 'finalizing';
+}
+
 interface UseTextProcessorProps {
     textRef: React.MutableRefObject<string>;
     committedLengthRef: React.MutableRefObject<number>; // Green
     correctedLengthRef: React.MutableRefObject<number>; // Blue/Purple
     checkedLengthRef: React.MutableRefObject<number>;   // Red
+    checkingLengthRef: React.MutableRefObject<number>;  // Yellow (Pending Check)
     settingsRef: React.MutableRefObject<CorrectionSettings>;
     statusRef: React.MutableRefObject<ProcessingStatus>;
     language: Language;
@@ -18,14 +25,16 @@ interface UseTextProcessorProps {
     setCorrectedLength: (len: number) => void;
     setCommittedLength: (len: number) => void;
     setCheckedLength: (len: number) => void;
+    setCheckingLength: (len: number) => void; // Setter for Yellow state
     finalizedSentences: Set<string>;
     addFinalizedSentence: (s: string) => void;
-    addAiFixedSegment: (s: string) => void; // NEW
+    addAiFixedSegment: (s: string) => void; 
+    addUnknownSegments: (words: string[]) => void; // NEW
     saveCheckpoint: (text: string, committed: number, corrected: number, tags?: string[]) => void;
     saveCheckpoints: (snapshots: { text: string, committedLength: number, correctedLength: number, checkedLength?: number, tags: string[] }[]) => void;
     onStatsUpdate: (count: number) => void;
     onStatusChange: (status: ProcessingStatus) => void;
-    onAutoFormat: (text: string) => void; // NEW: Callback for Smart Cursor Handling
+    onAutoFormat: (text: string) => void; 
     workerRef: React.MutableRefObject<Worker | null>;
 }
 
@@ -34,6 +43,7 @@ export const useTextProcessor = ({
     committedLengthRef,
     correctedLengthRef,
     checkedLengthRef,
+    checkingLengthRef,
     settingsRef,
     statusRef,
     language,
@@ -41,9 +51,11 @@ export const useTextProcessor = ({
     setCorrectedLength,
     setCommittedLength,
     setCheckedLength,
+    setCheckingLength,
     finalizedSentences,
     addFinalizedSentence,
     addAiFixedSegment,
+    addUnknownSegments,
     saveCheckpoint,
     saveCheckpoints,
     onStatsUpdate,
@@ -57,6 +69,9 @@ export const useTextProcessor = ({
     const processorIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const lastActivityRef = useRef(Date.now());
     
+    // VISUAL FEEDBACK STATE
+    const [processingOverlay, setProcessingOverlay] = useState<ProcessingOverlay | null>(null);
+
     // Core Logic Cycle
     const performCycle = async () => {
         const fullText = textRef.current;
@@ -64,9 +79,6 @@ export const useTextProcessor = ({
 
         // ---------------------------------------------------------
         // PRIORITY -1: GREEN SKIP (Fast-Forward Known Blocks)
-        // If the pending text matches sentences we have already finalized,
-        // we skip them instantly. This allows editing in the middle 
-        // without re-processing the rest of the document.
         // ---------------------------------------------------------
         let currentCommitted = committedLengthRef.current;
         const pendingForSkip = fullText.slice(currentCommitted);
@@ -81,7 +93,6 @@ export const useTextProcessor = ({
                 if (finalizedSentences.has(normalized)) {
                     advanceOffset = block.end; // Accumulate skip distance
                 } else {
-                    // Stop at the first dirty block
                     break;
                 }
             }
@@ -92,6 +103,7 @@ export const useTextProcessor = ({
                 setCommittedLength(newLen);
                 setCorrectedLength(Math.max(correctedLengthRef.current, newLen));
                 setCheckedLength(Math.max(checkedLengthRef.current, newLen));
+                setCheckingLength(Math.max(checkingLengthRef.current, newLen));
                 return; // Wait for next tick to process from new position
             }
         }
@@ -100,13 +112,9 @@ export const useTextProcessor = ({
         const committedLen = committedLengthRef.current;
         const correctedLen = correctedLengthRef.current;
         const checkedLen = checkedLengthRef.current;
-        const totalLen = fullText.length;
-
+        
         // ---------------------------------------------------------
         // PRIORITY -0.5: BOUNDARY CALCULATION (Safety Wall)
-        // Find the absolute index of the NEXT known green block.
-        // We must NEVER grab text past this limit for processing, 
-        // effectively isolating the "dirty" chunk (edited sentence).
         // ---------------------------------------------------------
         const activeText = fullText.slice(committedLen);
         const activeBlocks = splitIntoBlocks(activeText);
@@ -137,14 +145,14 @@ export const useTextProcessor = ({
         // PRIORITY 0.5: BULK PROCESSING (Paste / Dictation / Insert)
         // ---------------------------------------------------------
         if (isAiEnabled) {
-            // Slice ONLY up to the absoluteLimit to prevent grabbing the next green block
             const unfinalizedText = fullText.slice(committedLen, absoluteLimit);
-            
-            // Count sentence terminators to decide if it's "Bulk"
+            // Check for ANY sentence terminator.
             const matches = unfinalizedText.match(/[.!?](\s|$)/g);
             
-            if (matches && matches.length >= 2) {
-                const lastMatchIndex = unfinalizedText.lastIndexOf(matches[matches.length - 1]);
+            // CHANGED: >= 1 match triggers bulk logic.
+            // This ensures pasted sentences (even single ones) are processed immediately 
+            // as a whole block, skipping word-by-word dictionary checks.
+            if (matches && matches.length >= 1) {
                 const blocks = splitIntoBlocks(unfinalizedText);
                 let bulkEndIndex = 0;
                 let hasValidContent = false;
@@ -167,8 +175,7 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         // PRIORITY 1: STANDARD FINALIZATION (Blue/Purple -> Green)
         // ---------------------------------------------------------
-        if (isAiEnabled) {
-            // Constraint: Don't look past absoluteLimit
+        if (isAiEnabled && settingsRef.current.fixPunctuation) {
             const effectiveCorrectedLen = Math.min(correctedLen, absoluteLimit);
             
             if (effectiveCorrectedLen > committedLen) {
@@ -191,10 +198,9 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         // PRIORITY 2: AI CORRECTION (Red -> Purple)
         // ---------------------------------------------------------
-        // Constraint: Don't check past absoluteLimit
         const effectiveCheckedLen = Math.min(checkedLen, absoluteLimit);
         
-        if (isAiEnabled && effectiveCheckedLen > correctedLen) {
+        if (isAiEnabled && settingsRef.current.fixTypos && effectiveCheckedLen > correctedLen) {
             const redZone = fullText.slice(correctedLen, effectiveCheckedLen);
             if (redZone.trim()) {
                 await runAiCorrection(redZone, correctedLen);
@@ -208,10 +214,7 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         // PRIORITY 3: DICTIONARY CHECK (Grey -> Red/Blue)
         // ---------------------------------------------------------
-        // Constraint: Don't check past absoluteLimit
-        if (absoluteLimit > checkedLen) {
-            // We only check up to absoluteLimit. If there is more text after, it belongs
-            // to the next green block (which is skipped by Priority -1 anyway).
+        if (settingsRef.current.dictionaryCheck && absoluteLimit > checkedLen) {
             const greyZone = fullText.slice(checkedLen, absoluteLimit);
             
             let chunkEnd = 0;
@@ -220,11 +223,15 @@ export const useTextProcessor = ({
             
             for (const w of words) {
                 chunkEnd += w.length;
-                if (w.trim()) wordCount++;
-                if (wordCount >= 5 || /[.!?]/.test(w)) break;
+                if (w.trim()) {
+                    wordCount++;
+                }
+                if (wordCount >= 3 || /[.!?]/.test(w)) break;
             }
 
-            if (chunkEnd < greyZone.length || /[.!?\s]$/.test(greyZone)) {
+            const isAtEnd = (checkedLen + chunkEnd) >= fullText.length;
+            
+            if (chunkEnd > 0 && (wordCount >= 3 || isAtEnd || /[.!?]/.test(greyZone))) {
                 const chunkToTest = greyZone.slice(0, chunkEnd);
                 await runDictionaryCheck(chunkToTest, checkedLen);
                 return;
@@ -253,24 +260,43 @@ export const useTextProcessor = ({
                 resolve(); 
                 return; 
             }
+            
             onStatusChange('dict_check');
+            
+            const chunkLen = textChunk.length;
+            const targetEnd = startOffset + chunkLen;
+            setCheckingLength(targetEnd);
+
             const handleWorkerMsg = (e: MessageEvent) => {
-                const { type, hasErrors } = e.data;
+                const { type, unknownWords } = e.data;
                 if (type === 'CHECK_RESULT') {
-                    workerRef.current?.removeEventListener('message', handleWorkerMsg);
-                    const chunkLen = textChunk.length;
-                    if (startOffset + chunkLen > textRef.current.length) {
+                    cleanup();
+                    
+                    if (targetEnd > textRef.current.length) {
+                         setCheckingLength(0); 
                          resolve(); return;
                     }
-                    if (hasErrors) {
-                        setCheckedLength(startOffset + chunkLen);
-                    } else {
-                        setCheckedLength(startOffset + chunkLen);
-                        setCorrectedLength(startOffset + chunkLen);
+
+                    if (unknownWords && unknownWords.length > 0) {
+                        addUnknownSegments(unknownWords);
                     }
+                    
+                    setCheckedLength(targetEnd);
                     resolve();
                 }
             };
+
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                setCheckedLength(targetEnd);
+                resolve();
+            }, 2000);
+
+            const cleanup = () => {
+                workerRef.current?.removeEventListener('message', handleWorkerMsg);
+                clearTimeout(timeoutId);
+            };
+
             workerRef.current.addEventListener('message', handleWorkerMsg);
             workerRef.current.postMessage({ type: 'CHECK_CHUNK', text: textChunk, language });
         });
@@ -278,9 +304,9 @@ export const useTextProcessor = ({
 
     // --- AI ACTIONS ---
 
-    // NEW: Handles large blocks (Paste/Dictation) in one go
     const runBulkFinalization = async (textChunk: string, startOffset: number) => {
         onStatusChange('ai_finalizing');
+        setProcessingOverlay({ start: startOffset, end: startOffset + textChunk.length, type: 'finalizing' });
         
         const preEditSnapshot = {
             text: textRef.current,
@@ -292,14 +318,13 @@ export const useTextProcessor = ({
         const trimmedInput = textChunk.trim();
 
         try {
-            // Use Stage 3: Fix Typos AND Finalize in one request
+            // Bulk Finalization uses "fixAndFinalize" which is more robust (Typos + Punctuation)
+            // This is ideal for skipping the dictionary step.
             const finalized = await fixAndFinalize(trimmedInput, language);
-            
             let finalChunk = leadingSpace + finalized;
             finalChunk = ensureProperSpacing(finalChunk);
             finalChunk = formatPunctuationOnTheFly(finalChunk);
             
-             // Ensure spacing between sentences if replacing inline
             if (/[.!?]$/.test(finalChunk) && !/\s$/.test(finalChunk)) {
                  const fullText = textRef.current;
                  const nextChar = fullText[startOffset + textChunk.length];
@@ -309,11 +334,6 @@ export const useTextProcessor = ({
             }
 
             if (finalChunk !== textChunk) {
-                 // Stale check
-                const currentText = textRef.current;
-                const expectedSlice = currentText.slice(startOffset, startOffset + textChunk.length);
-                if (expectedSlice !== textChunk) return;
-
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
                 if (!newFullText) return;
 
@@ -321,11 +341,10 @@ export const useTextProcessor = ({
                 
                 const newCommitted = startOffset + finalChunk.length;
                 setCommittedLength(newCommitted);
-                // Sync all pointers to Green
                 setCorrectedLength(newCommitted);
                 setCheckedLength(newCommitted);
+                setCheckingLength(newCommitted);
                 
-                // Add all sentences in the bulk block to finalized set
                 const blocks = splitIntoBlocks(finalChunk);
                 blocks.forEach(b => {
                     if (!b.isSeparator) addFinalizedSentence(b.text);
@@ -352,12 +371,12 @@ export const useTextProcessor = ({
 
                 onStatusChange('done');
             } else {
-                // If text didn't change, just mark as committed
                 if (textRef.current.length >= startOffset + textChunk.length) {
                     const newLen = startOffset + textChunk.length;
                     setCommittedLength(newLen);
                     setCorrectedLength(newLen);
                     setCheckedLength(newLen);
+                    setCheckingLength(newLen);
                     
                     const blocks = splitIntoBlocks(textChunk);
                     blocks.forEach(b => {
@@ -368,17 +387,15 @@ export const useTextProcessor = ({
             }
         } catch (e) {
              console.error("Bulk finalize error", e);
-             // On error, try to just advance pointers so we don't loop forever
-             if (textRef.current.length >= startOffset + textChunk.length) {
-                // Do not commit, but maybe advance checked? 
-                // Let's leave it to be retried or handled by manual edit
-             }
              onStatusChange('error');
+        } finally {
+            setProcessingOverlay(null);
         }
     };
 
     const runAiCorrection = async (textChunk: string, startOffset: number) => {
         onStatusChange('ai_fixing');
+        setProcessingOverlay({ start: startOffset, end: startOffset + textChunk.length, type: 'fixing' });
         
         const preEditSnapshot = {
             text: textRef.current,
@@ -392,6 +409,7 @@ export const useTextProcessor = ({
 
         if (!trimmedInput) {
              setCorrectedLength(startOffset + textChunk.length);
+             setProcessingOverlay(null);
              return;
         }
 
@@ -400,10 +418,6 @@ export const useTextProcessor = ({
             const finalChunk = leadingSpace + fixed + trailingSpace;
 
             if (finalChunk !== textChunk) {
-                const currentText = textRef.current;
-                const expectedSlice = currentText.slice(startOffset, startOffset + textChunk.length);
-                if (expectedSlice !== textChunk) return;
-                
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
                 if (!newFullText) return;
 
@@ -440,11 +454,14 @@ export const useTextProcessor = ({
             if (textRef.current.length >= startOffset + textChunk.length) {
                 setCorrectedLength(startOffset + textChunk.length);
             }
+        } finally {
+            setProcessingOverlay(null);
         }
     };
 
     const runFinalization = async (textChunk: string, startOffset: number) => {
         onStatusChange('ai_finalizing');
+        setProcessingOverlay({ start: startOffset, end: startOffset + textChunk.length, type: 'finalizing' });
         
         const preEditSnapshot = {
             text: textRef.current,
@@ -471,10 +488,6 @@ export const useTextProcessor = ({
             }
 
             if (finalChunk !== textChunk) {
-                const currentText = textRef.current;
-                const expectedSlice = currentText.slice(startOffset, startOffset + textChunk.length);
-                if (expectedSlice !== textChunk) return;
-
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
                 if (!newFullText) return;
 
@@ -500,7 +513,7 @@ export const useTextProcessor = ({
                     {
                         text: newFullText,
                         committedLength: newCommitted,
-                        correctedLength: newCorrected,
+                        correctedLength: newCommitted,
                         checkedLength: Math.max(checkedLengthRef.current, newCommitted),
                         tags: ['finalized', 'ai_corrected']
                     }
@@ -519,6 +532,8 @@ export const useTextProcessor = ({
              if (textRef.current.length >= startOffset + textChunk.length) {
                 setCommittedLength(startOffset + textChunk.length);
              }
+        } finally {
+            setProcessingOverlay(null);
         }
     };
 
@@ -575,11 +590,13 @@ export const useTextProcessor = ({
 
     const reset = useCallback(() => {
         isProcessingRef.current = false;
+        setProcessingOverlay(null);
         onStatusChange('idle');
     }, [onStatusChange]);
 
     return {
         notifyActivity,
-        reset
+        reset,
+        processingOverlay // EXPORTED STATE
     };
 };

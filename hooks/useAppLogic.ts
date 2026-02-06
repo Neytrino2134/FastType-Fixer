@@ -4,6 +4,31 @@ import { AppState, CorrectionSettings, Language, ProcessingStatus, ClipboardItem
 import { setGeminiApiKey } from '../services/geminiService';
 import { loadDictionaries } from '../data/dictionary';
 
+const STORAGE_KEY_SETTINGS = 'fasttype_settings_v1';
+
+const DEFAULT_SETTINGS: CorrectionSettings = {
+  enabled: true,
+  debounceMs: 700,
+  finalizationTimeout: 5000,
+  miniScripts: true, 
+  fixTypos: true,
+  fixPunctuation: true,
+  clipboardEnabled: true,
+  silenceThreshold: 15,
+  audioModel: 'gemini-2.5-flash',
+  economyMode: true,
+  dictionaryCheck: true, // Default enabled
+  // Visualizer Defaults
+  visualizerLowCut: 0,
+  visualizerHighCut: 128,
+  visualizerAmp: 0.4,
+  visualizerStyle: 'wave', // Default changed to 'wave'
+  visualizerNorm: false,
+  visualizerGravity: 2.0,
+  visualizerMirror: true, // Default changed to true
+  developerMode: false
+};
+
 export const useAppLogic = () => {
   // App Flow State
   const [appState, setAppState] = useState<AppState>('loading');
@@ -22,24 +47,24 @@ export const useAppLogic = () => {
   const [resetSignal, setResetSignal] = useState(0); 
   const [isPinned, setIsPinned] = useState(false); 
   
-  // Configuration State
-  const [settings, setSettings] = useState<CorrectionSettings>({
-    enabled: true,
-    debounceMs: 700,
-    finalizationTimeout: 5000,
-    miniScripts: true, 
-    fixTypos: true,
-    fixPunctuation: true,
-    clipboardEnabled: true,
-    silenceThreshold: 15,
-    audioModel: 'gemini-2.5-flash',
-    economyMode: true,
-    // Visualizer Defaults
-    visualizerLowCut: 2,   // Cut extremely low frequencies
-    visualizerHighCut: 60, // Cut extremely high noise (out of 128 bins)
-    visualizerAmp: 1.0,     // Default amplitude multiplier
-    visualizerStyle: 'classic' // Default style
+  // Configuration State (With Persistence)
+  const [settings, setSettings] = useState<CorrectionSettings>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
+      if (saved) {
+        // Merge saved settings with defaults to ensure all keys exist (if new settings added in future)
+        return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+      }
+    } catch (e) {
+      console.warn("Failed to load settings", e);
+    }
+    return DEFAULT_SETTINGS;
   });
+
+  // Save Settings Persistence
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+  }, [settings]);
 
   // UI State
   const [showSettings, setShowSettings] = useState(false);
@@ -112,6 +137,13 @@ export const useAppLogic = () => {
     setAppState('app');
   }, []);
 
+  // New: Update Key without full reset
+  const handleUpdateKey = useCallback((key: string) => {
+    localStorage.setItem('gemini_api_key', key);
+    setGeminiApiKey(key);
+    setStoredKey(key);
+  }, []);
+
   const handleReturnToWelcome = useCallback(() => {
     if (lockCode) {
         setIsLocked(true);
@@ -136,6 +168,11 @@ export const useAppLogic = () => {
     setIsLocked(false);
   }, []);
 
+  // NEW: Validate PIN for Settings changes (Change/Remove)
+  const validatePin = useCallback((input: string) => {
+      return input === lockCode;
+  }, [lockCode]);
+
   // NEW: Handle Full Data Wipe
   const handleWipeData = useCallback(() => {
     // 1. Remove Lock
@@ -155,6 +192,10 @@ export const useAppLogic = () => {
     
     // Note: Editor history wipe happens in App.tsx via Ref, but we clear LS key here just in case
     localStorage.removeItem('fasttype_editor_state_v2');
+    
+    // Also reset settings to default
+    setSettings(DEFAULT_SETTINGS);
+    localStorage.removeItem(STORAGE_KEY_SETTINGS);
 
     return true;
   }, []);
@@ -230,18 +271,41 @@ export const useAppLogic = () => {
     });
   }, [settings.clipboardEnabled]);
 
-  const handleClearClipboard = useCallback(() => {
+  const handleClearClipboard = useCallback((text?: string) => {
     setClipboardHistory([]);
   }, []);
 
   const handleResetProcessor = useCallback(() => {
     setResetSignal(prev => prev + 1);
+    // Force resume and enable all checks to ensure a clean working state
+    setSettings(prev => ({
+        ...prev,
+        enabled: true,
+        miniScripts: true,
+        fixTypos: true,
+        fixPunctuation: true,
+        dictionaryCheck: true
+    }));
+    setStatus('idle');
   }, []);
 
   const handleToggleProcessing = useCallback(() => {
     setSettings(prev => {
         const nextState = !prev.enabled;
         setStatus(nextState ? 'idle' : 'paused'); 
+        
+        // If enabling, also enable all sub-features for "Global Resume"
+        if (nextState) {
+            return { 
+                ...prev, 
+                enabled: true, 
+                miniScripts: true, 
+                fixTypos: true, 
+                fixPunctuation: true, 
+                dictionaryCheck: true 
+            };
+        }
+        
         return { ...prev, enabled: nextState };
     });
   }, []);
@@ -285,7 +349,7 @@ export const useAppLogic = () => {
             e.preventDefault();
             toggleSettings();
             break;
-          case 'KeyV':
+          case 'KeyW': // Changed from KeyV to KeyW
             e.preventDefault();
             toggleClipboard();
             break;
@@ -330,6 +394,7 @@ export const useAppLogic = () => {
       handleStartApp,
       handleReturnToWelcome,
       handleResetKey,
+      handleUpdateKey, // Exported
       incrementStats,
       toggleLanguage,
       toggleSettings,
@@ -344,10 +409,11 @@ export const useAppLogic = () => {
       handleSetLock,
       handleRemoveLock,
       handleUnlock,
+      validatePin, // New Action
       setCurrentTab,
       handleToggleProcessing,
       handleTogglePin,
-      handleWipeData // Export New Action
+      handleWipeData
     }
   };
 };

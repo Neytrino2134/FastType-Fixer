@@ -94,7 +94,7 @@ export const ApiKeyGuide: React.FC<ApiKeyGuideProps> = ({ language, onDone, isAc
 
         const soundPath = `./sounds/guide_step_${stepNum}_${language}.wav`;
         const audio = new Audio(soundPath);
-        audio.volume = 1.0;
+        audio.volume = 0.6; // SET DEFAULT VOLUME TO 60%
         audioRef.current = audio;
 
         // 1. Success Path: Audio ends naturally

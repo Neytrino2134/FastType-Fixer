@@ -1,5 +1,4 @@
 
-
 export interface CorrectionSettings {
   enabled: boolean;
   debounceMs: number;
@@ -11,15 +10,15 @@ export interface CorrectionSettings {
   silenceThreshold: number; 
   audioModel: 'gemini-2.5-flash' | 'gemini-2.5-pro';
   economyMode: boolean; 
-  dictionaryCheck: boolean; // New: Toggle for Dictionary Layer
+  dictionaryCheck: boolean;
   // Visualizer Settings
-  visualizerLowCut: number; // 0-20
-  visualizerHighCut: number; // 20-128
-  visualizerAmp: number; // 0.5 - 3.0 multiplier
+  visualizerLowCut: number;
+  visualizerHighCut: number;
+  visualizerAmp: number;
   visualizerStyle: 'classic' | 'bars' | 'circular' | 'wave';
-  visualizerNorm: boolean; // New: Normalization
-  visualizerGravity: number; // New: Gravity (0.1 - 10)
-  visualizerMirror: boolean; // New: Mirror from center
+  visualizerNorm: boolean;
+  visualizerGravity: number;
+  visualizerMirror: boolean;
   developerMode: boolean;
 }
 
@@ -41,7 +40,7 @@ export interface HistorySnapshot {
   finalizedSentences?: string[];
   aiFixedSegments?: string[]; 
   dictatedSegments?: string[];
-  unknownSegments?: string[]; // New: Specific words failing dict check
+  unknownSegments?: string[];
 }
 
 export interface EditorState {
@@ -55,13 +54,14 @@ export type ProcessingStatus = 'idle' | 'typing' | 'dict_check' | 'ai_fixing' | 
 
 export type VisualizerStatus = 'idle' | 'listening' | 'editing' | 'analyzing_listening' | 'analyzing' | 'done';
 
-export type Language = 'ru' | 'en';
+// Updated Language Type to be extensible
+export type Language = 'ru' | 'en' | 'uz-latn' | 'uz-cyrl'; 
 
 export type AppState = 'loading' | 'welcome' | 'app';
 
 export type NotificationType = 'success' | 'error' | 'info' | 'warning';
 
-export type Tab = 'editor' | 'chat' | 'translator';
+export type Tab = 'editor' | 'chat' | 'translator' | 'planner';
 
 export interface Notification {
   id: string;
@@ -84,6 +84,39 @@ export interface ChatMessage {
   timestamp: number;
   isTyping?: boolean; 
   attachment?: Attachment; 
+}
+
+// --- PLANNER TYPES ---
+export interface PlannerNote {
+  id: string;
+  title: string;
+  content: string;
+  timestamp: number;
+  color: 'yellow' | 'blue' | 'green' | 'purple' | 'red';
+}
+
+export interface PlannerTask {
+  id: string;
+  text: string;
+  completed: boolean;
+  timestamp: number;
+}
+
+// --- LOCALIZATION INTERFACES ---
+
+export interface PromptDictionary {
+  fixTypos: string;
+  finalize: string;
+  combined: string;
+  system: string;
+  enhance: string;
+  transcribe: string;
+  ocr: string;
+}
+
+// Loose interface for UI to allow flexibility, but strongly typed in implementation
+export interface UIDictionary {
+  [key: string]: string;
 }
 
 declare global {

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { SmartEditor, SmartEditorHandle } from './components/SmartEditor';
 import { WelcomeScreen } from './components/WelcomeScreen';
@@ -9,8 +10,10 @@ import { NotificationSystem } from './components/NotificationSystem';
 import { HelpModal } from './components/HelpModal';
 import { ChatInterface } from './components/Chat/ChatInterface'; 
 import { TranslatorInterface } from './components/Translator/TranslatorInterface'; 
+import { PlannerInterface } from './components/Planner/PlannerInterface';
 import { useAppLogic } from './hooks/useAppLogic';
 import { getTranslation } from './utils/i18n';
+import { Tab } from './types';
 
 export default function App() {
   const { state, actions } = useAppLogic();
@@ -71,6 +74,44 @@ export default function App() {
   // Reference to Editor for imperative actions (Clear, Copy, Paste, Wipe)
   const editorRef = useRef<SmartEditorHandle>(null);
 
+  // State for transferring text between tabs
+  const [transferRequest, setTransferRequest] = useState<{ text: string, target: Tab, timestamp: number } | null>(null);
+
+  // GLOBAL HOTKEYS FOR EDITOR ACTIONS (Alt + 1..5)
+  useEffect(() => {
+      const handleGlobalActions = (e: KeyboardEvent) => {
+          if (state.appState !== 'app' || state.currentTab !== 'editor') return;
+          
+          if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+              switch(e.code) {
+                  case 'Digit1': // Alt+1: Cut All
+                      e.preventDefault();
+                      editorRef.current?.cut();
+                      break;
+                  case 'Digit2': // Alt+2: Copy All
+                      e.preventDefault();
+                      editorRef.current?.copy();
+                      break;
+                  case 'Digit3': // Alt+3: Paste
+                      e.preventDefault();
+                      editorRef.current?.paste();
+                      break;
+                  case 'Digit4': // Alt+4: Paste & Replace
+                      e.preventDefault();
+                      editorRef.current?.clearAndPaste();
+                      break;
+                  case 'Digit5': // Alt+5: Clear All
+                      e.preventDefault();
+                      editorRef.current?.clear();
+                      break;
+              }
+          }
+      };
+
+      window.addEventListener('keydown', handleGlobalActions);
+      return () => window.removeEventListener('keydown', handleGlobalActions);
+  }, [state.appState, state.currentTab]);
+
   const handleHistoryUpdate = useCallback(() => {
     setHistoryUpdateCount(c => c + 1);
   }, []);
@@ -114,6 +155,23 @@ export default function App() {
     editorRef.current?.clearAndPaste();
   }, []);
 
+  // Tab Transfer Actions
+  const handleSendToChat = useCallback(() => {
+      const text = editorRef.current?.getText();
+      if (text && text.trim()) {
+          setTransferRequest({ text, target: 'chat', timestamp: Date.now() });
+          actions.setCurrentTab('chat');
+      }
+  }, [actions]);
+
+  const handleSendToTranslator = useCallback(() => {
+      const text = editorRef.current?.getText();
+      if (text && text.trim()) {
+          setTransferRequest({ text, target: 'translator', timestamp: Date.now() });
+          actions.setCurrentTab('translator');
+      }
+  }, [actions]);
+
   // New: FULL WIPE HANDLER (Combines App logic + Editor logic)
   const performFullWipe = useCallback(() => {
       // 1. Wipe App Logic State (Lock, Clipboard, Stats, LocalStorage keys)
@@ -129,7 +187,7 @@ export default function App() {
   }, [actions]);
 
   // Determine active index for logic (though visual transition is now absolute stacking)
-  const tabs = ['editor', 'chat', 'translator'];
+  const tabs = ['editor', 'chat', 'translator', 'planner'];
   const activeIndex = tabs.indexOf(state.currentTab);
 
   const getTransitionClass = (index: number) => {
@@ -204,7 +262,7 @@ export default function App() {
                 setCurrentTab={actions.setCurrentTab}
                 isPinned={state.isPinned}
                 onTogglePin={actions.handleTogglePin}
-                onToggleLanguage={actions.toggleLanguage}
+                onSetLanguage={actions.setLanguage} // Updated Prop
                 onTogglePause={actions.handleToggleProcessing}
                 onToggleClipboard={actions.toggleClipboard}
                 onToggleSettings={actions.toggleSettings}
@@ -219,7 +277,9 @@ export default function App() {
                 onPasteText={handleHeaderPaste}
                 onCutText={handleHeaderCut}
                 onClearAndPaste={handleHeaderClearAndPaste}
-                onUpdateSettings={actions.setSettings} // Added Prop
+                onUpdateSettings={actions.setSettings}
+                onSendToChat={handleSendToChat}
+                onSendToTranslator={handleSendToTranslator}
               />
 
               {/* Global Notification Layer */}
@@ -254,6 +314,17 @@ export default function App() {
               {/* Main Content Area */}
               <main className="flex-1 relative bg-slate-900 w-full h-full overflow-hidden z-0">
                 
+                {/* GLOBAL: Clipboard History Overlay */}
+                <ClipboardHistory 
+                    items={state.clipboardHistory}
+                    isOpen={state.showClipboard}
+                    isEnabled={state.settings.clipboardEnabled}
+                    onToggleEnabled={() => actions.setSettings(s => ({...s, clipboardEnabled: !s.clipboardEnabled}))}
+                    onClose={actions.closeOverlays}
+                    onClear={actions.handleClearClipboard}
+                    language={state.language}
+                />
+
                 {/* VIEW: EDITOR (Index 0) */}
                 <div className={getTransitionClass(0)}>
                      <SmartEditor 
@@ -275,16 +346,6 @@ export default function App() {
                         showClipboard={state.showClipboard}
                         onToggleClipboard={actions.toggleClipboard}
                     />
-                    
-                    <ClipboardHistory 
-                        items={state.clipboardHistory}
-                        isOpen={state.showClipboard}
-                        isEnabled={state.settings.clipboardEnabled}
-                        onToggleEnabled={() => actions.setSettings(s => ({...s, clipboardEnabled: !s.clipboardEnabled}))}
-                        onClose={actions.closeOverlays}
-                        onClear={actions.handleClearClipboard}
-                        language={state.language}
-                    />
                 </div>
 
                 {/* VIEW: CHAT / ASSISTANT (Index 1) */}
@@ -292,6 +353,9 @@ export default function App() {
                     <ChatInterface 
                         language={state.language} 
                         apiKey={state.storedKey}
+                        settings={state.settings} 
+                        transferRequest={transferRequest}
+                        onToggleClipboard={actions.toggleClipboard}
                     />
                 </div>
 
@@ -300,6 +364,17 @@ export default function App() {
                     <TranslatorInterface
                         language={state.language} 
                         apiKey={state.storedKey}
+                        transferRequest={transferRequest}
+                        onToggleClipboard={actions.toggleClipboard}
+                    />
+                </div>
+
+                {/* VIEW: PLANNER (Index 3) */}
+                <div className={getTransitionClass(3)}>
+                    <PlannerInterface
+                        language={state.language} 
+                        apiKey={state.storedKey}
+                        onToggleClipboard={actions.toggleClipboard}
                     />
                 </div>
 
@@ -310,6 +385,7 @@ export default function App() {
                 &copy; {t.footer} 
                 {state.currentTab === 'chat' && ' • Assistant Mode'}
                 {state.currentTab === 'translator' && ' • Translator'}
+                {state.currentTab === 'planner' && ' • Planner'}
               </footer>
             </div>
         )}

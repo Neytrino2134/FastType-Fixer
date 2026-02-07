@@ -7,7 +7,7 @@ import { useAudioRecorder } from './useAudioRecorder';
 import { useNotification } from '../contexts/NotificationContext';
 import { useEditorHotkeys } from './useEditorHotkeys';
 import { useTextProcessor } from './useTextProcessor';
-import { COMMON_WORDS_RU, COMMON_WORDS_EN } from '../data/dictionary';
+import { COMMON_WORDS_RU, COMMON_WORDS_EN, COMMON_WORDS_UZ_LATN, COMMON_WORDS_UZ_CYRL } from '../data/dictionary';
 import { normalizeBlock } from '../utils/textStructure';
 import { getTranslation } from '../utils/i18n';
 import { runMiniScripts } from '../utils/miniScripts';
@@ -27,6 +27,7 @@ interface UseSmartEditorProps {
 
 const TYPING_TIMEOUT_MS = 1500; 
 const MANUAL_SAVE_DEBOUNCE_MS = 1000;
+const AUTO_REFRESH_IDLE_MS = 20000; // 20 seconds for auto-cleanup
 
 export const useSmartEditor = ({ 
   settings, 
@@ -50,7 +51,7 @@ export const useSmartEditor = ({
     finalizedSentences, addFinalizedSentence, 
     aiFixedSegments, addAiFixedSegment,
     dictatedSegments, addDictatedSegment,
-    unknownSegments, addUnknownSegments, // NEW
+    unknownSegments, addUnknownSegments, 
     saveCheckpoint, saveCheckpoints, undo, redo, canUndo, canRedo,
     history, historyIndex, jumpTo, lastUpdate,
     clearHistory
@@ -65,8 +66,14 @@ export const useSmartEditor = ({
   const settingsRef = useRef(settings);
   const statusRef = useRef(status);
   
+  // Track last interaction for auto-refresh
+  const lastInteractionTimeRef = useRef(Date.now());
+  
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const manualSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Lock for toggleRecording to prevent double-clicks
+  const toggleLockRef = useRef(false);
 
   // Worker Ref
   const workerRef = useRef<Worker | null>(null);
@@ -87,16 +94,20 @@ export const useSmartEditor = ({
   // 3. Worker Initialization
   useEffect(() => {
       workerRef.current = new Worker(new URL('../workers/dictionary.worker.ts', import.meta.url), { type: 'module' });
-      workerRef.current.postMessage({ 
-          type: 'SET_DICTIONARY', 
-          language: 'ru', 
-          words: Array.from(COMMON_WORDS_RU) 
-      });
-      workerRef.current.postMessage({ 
-          type: 'SET_DICTIONARY', 
-          language: 'en', 
-          words: Array.from(COMMON_WORDS_EN) 
-      });
+      
+      const sendDict = (lang: string, set: Set<string>) => {
+          workerRef.current?.postMessage({ 
+              type: 'SET_DICTIONARY', 
+              language: lang, 
+              words: Array.from(set) 
+          });
+      };
+
+      sendDict('ru', COMMON_WORDS_RU);
+      sendDict('en', COMMON_WORDS_EN);
+      sendDict('uz-latn', COMMON_WORDS_UZ_LATN);
+      sendDict('uz-cyrl', COMMON_WORDS_UZ_CYRL);
+
       return () => { workerRef.current?.terminate(); };
   }, []);
 
@@ -104,17 +115,16 @@ export const useSmartEditor = ({
   const { isRecording, startRecording, stopRecording, visualizerDataRef, autoStopCountdown } = useAudioRecorder(settings.silenceThreshold);
   const { addNotification } = useNotification();
   const [visualizerStatus, setVisualizerStatus] = useState<VisualizerStatus>('idle');
-  const [isAnalyzing, setIsAnalyzing] = useState(false); // New State for UI stacking
-  const [isDevRecording, setIsDevRecording] = useState(false); // New State for Dev Mode
+  const [isAnalyzing, setIsAnalyzing] = useState(false); 
+  const [isDevRecording, setIsDevRecording] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const pendingTranscriptionsCount = useRef(0);
 
-  /**
-   * CORE TEXT UPDATE LOGIC
-   */
+  // --- CORE TEXT UPDATE LOGIC ---
   const handleTextUpdate = useCallback((newVal: string) => {
+    lastInteractionTimeRef.current = Date.now(); // Reset idle timer
     const oldVal = textRef.current;
     
     setText(newVal);
@@ -122,20 +132,16 @@ export const useSmartEditor = ({
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     if (manualSaveTimeoutRef.current) clearTimeout(manualSaveTimeoutRef.current);
     
-    // --- 1. HANDLE EMPTY TEXT (Clear) ---
     if (newVal.length === 0) {
         setCommittedLength(0);
         setCorrectedLength(0);
         setCheckedLength(0);
         setCheckingLength(0);
-        
         onStatusChange(settings.enabled ? 'idle' : 'paused');
-        
         saveCheckpoint('', 0, 0, ['raw']);
         return;
     }
     
-    // --- 2. DETECT PASTE / CUT (Large changes) ---
     if (Math.abs(newVal.length - oldVal.length) > 5) {
         const newChecked = Math.min(checkedLengthRef.current, newVal.length);
         const newCorrected = Math.min(correctedLengthRef.current, newVal.length);
@@ -146,7 +152,6 @@ export const useSmartEditor = ({
         saveCheckpoint(newVal, newCommitted, newCorrected, ['raw']);
     } 
     else {
-        // --- 3. DEBOUNCE SAVE ---
         manualSaveTimeoutRef.current = setTimeout(() => {
              const currentT = textRef.current;
              saveCheckpoint(
@@ -158,7 +163,7 @@ export const useSmartEditor = ({
         }, MANUAL_SAVE_DEBOUNCE_MS);
     }
     
-    if (statusRef.current !== 'recording' && statusRef.current !== 'ai_fixing' && statusRef.current !== 'ai_finalizing') {
+    if (statusRef.current !== 'recording' && statusRef.current !== 'ai_fixing' && statusRef.current !== 'ai_finalizing' && statusRef.current !== 'transcribing') {
         onStatusChange('typing');
     }
 
@@ -168,7 +173,7 @@ export const useSmartEditor = ({
         }
     }, TYPING_TIMEOUT_MS);
 
-    // --- 4. BACKTRACKING LOGIC ---
+    // Sync pointers
     let diffIndex = 0;
     while (diffIndex < oldVal.length && diffIndex < newVal.length && oldVal[diffIndex] === newVal[diffIndex]) {
       diffIndex++;
@@ -180,7 +185,6 @@ export const useSmartEditor = ({
     if (diffIndex < committedLengthRef.current) setCommittedLength(Math.max(0, diffIndex));
   }, [saveCheckpoint, onStatusChange, setCommittedLength, setCorrectedLength, setCheckedLength, setCheckingLength, setText, settings.enabled]);
 
-  // SMART CURSOR HANDLER FOR AUTO-FORMAT
   const handleAutoFormat = useCallback((newText: string) => {
     const textarea = textareaRef.current;
     if (!textarea) {
@@ -203,7 +207,6 @@ export const useSmartEditor = ({
     });
   }, [handleTextUpdate]);
 
-  // New Text Processor (The Brain)
   const { notifyActivity, reset: resetProcessor, processingOverlay } = useTextProcessor({
       textRef,
       committedLengthRef,
@@ -221,7 +224,8 @@ export const useSmartEditor = ({
       finalizedSentences, 
       addFinalizedSentence,
       addAiFixedSegment,
-      addUnknownSegments, // Pass to processor
+      unknownSegments, // Pass Set for read access
+      addUnknownSegments, 
       saveCheckpoint,
       saveCheckpoints,
       onStatsUpdate,
@@ -230,7 +234,31 @@ export const useSmartEditor = ({
       workerRef
   });
 
-  // Hotkeys
+  // --- AUTO REFRESH / IDLE CLEANUP ---
+  useEffect(() => {
+      const maintenanceInterval = setInterval(() => {
+          const now = Date.now();
+          const idleTime = now - lastInteractionTimeRef.current;
+          
+          if (idleTime > AUTO_REFRESH_IDLE_MS && statusRef.current === 'idle' && !pendingTranscriptionsCount.current) {
+              // Soft reset: Clear transient flags
+              resetProcessor(); 
+              setCheckingLength(0); 
+              
+              if (isRecording) {
+                  stopRecording(); 
+              }
+              
+              lastInteractionTimeRef.current = Date.now(); 
+          }
+      }, 5000); 
+
+      return () => clearInterval(maintenanceInterval);
+  }, [resetProcessor, isRecording, stopRecording]);
+
+
+  // --- HANDLERS ---
+
   const { handleUndo, handleRedo, handleKeyDown } = useEditorHotkeys({
       undo,
       redo,
@@ -240,8 +268,6 @@ export const useSmartEditor = ({
       onPauseProcessing
   });
 
-  // 5. Handlers
-
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
     if (backdropRef.current) {
       backdropRef.current.scrollTop = e.currentTarget.scrollTop;
@@ -249,33 +275,36 @@ export const useSmartEditor = ({
   };
 
   const handleClipboardEvent = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    lastInteractionTimeRef.current = Date.now();
     const target = e.currentTarget;
     const selectedText = target.value.substring(target.selectionStart, target.selectionEnd);
     if (selectedText) onClipboardAction(selectedText);
   };
 
   const handleHistoryJump = useCallback((index: number) => {
+    lastInteractionTimeRef.current = Date.now();
     if (jumpTo(index)) {
         onStatusChange('paused');
         onPauseProcessing();
     }
   }, [jumpTo, onStatusChange, onPauseProcessing]);
 
-  // RESET SIGNAL
   useEffect(() => {
     if (resetSignal > 0) {
-      resetProcessor();
+      // Force Reset triggered by UI button
+      stopRecording(); // Hard stop audio
+      resetProcessor(); // Hard reset processor
       onStatusChange('idle');
       setVisualizerStatus('idle');
       setIsAnalyzing(false);
       setCheckingLength(0);
+      pendingTranscriptionsCount.current = 0;
+      lastInteractionTimeRef.current = Date.now();
     }
-  }, [resetSignal, onStatusChange, resetProcessor, setCheckingLength]);
+  }, [resetSignal, onStatusChange, resetProcessor, setCheckingLength, stopRecording]);
 
-  // MONITOR RECORDING STATE
   useEffect(() => {
     if (!isRecording && status === 'recording') {
-        // If we were in dev mode, just go back to idle
         if (isDevRecording) {
             setIsDevRecording(false);
             onStatusChange(settings.enabled ? 'idle' : 'paused');
@@ -286,13 +315,18 @@ export const useSmartEditor = ({
         if (pendingTranscriptionsCount.current > 0) {
             onStatusChange('transcribing');
         } else {
-            onStatusChange('idle');
+            // Only force idle if we aren't analyzing. 
+            // If analyzing, the analyzing logic will eventually set it to idle.
+            if (!isAnalyzing) {
+                onStatusChange(settings.enabled ? 'idle' : 'paused');
+            }
         }
         setVisualizerStatus('idle');
     }
-  }, [isRecording, status, onStatusChange, isDevRecording, settings.enabled]);
+  }, [isRecording, status, onStatusChange, isDevRecording, settings.enabled, isAnalyzing]);
 
   const handleEnhance = async () => {
+      lastInteractionTimeRef.current = Date.now();
       const t = getTranslation(language);
       
       if (statusRef.current === 'recording' || statusRef.current === 'enhancing' || !textRef.current.trim()) return;
@@ -305,7 +339,6 @@ export const useSmartEditor = ({
       onStatusChange('enhancing');
       
       const original = textRef.current;
-      // SAVE CHECKPOINT
       saveCheckpoint(original, committedLengthRef.current, correctedLengthRef.current, ['pre_ai']);
 
       try {
@@ -345,8 +378,8 @@ export const useSmartEditor = ({
     notifyActivity();
   };
 
-  // Generic Media Handler (Audio & Image)
   const handleMediaFile = useCallback((file: File) => {
+      lastInteractionTimeRef.current = Date.now();
       const reader = new FileReader();
       
       const isAudio = file.type.startsWith('audio/');
@@ -419,19 +452,21 @@ export const useSmartEditor = ({
       reader.readAsDataURL(file);
   }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, addNotification]);
 
-  // Audio Chunk Handling (Live Recording)
   const handleAudioChunk = useCallback(async (base64: string, mimeType: string) => {
+    // FIX: Always increment pending count to indicate active work
     pendingTranscriptionsCount.current += 1;
     setIsAnalyzing(true);
     
+    // Ensure UI shows processing state if it wasn't already (e.g. Stop was clicked)
     if (statusRef.current !== 'recording') {
         onStatusChange('transcribing');
     }
-
+    
     try {
         let transcription = await transcribeAudio(base64, mimeType, language, settingsRef.current.audioModel);
         
         if (transcription && transcription.trim()) {
+            lastInteractionTimeRef.current = Date.now(); // Valid input, reset idle timer
             const currentText = textRef.current;
             const separator = currentText.trim().length > 0 && !currentText.endsWith(' ') ? ' ' : '';
             const newTextValue = currentText + separator + transcription;
@@ -463,43 +498,77 @@ export const useSmartEditor = ({
         console.error("Chunk transcription failed", e);
     } finally {
         pendingTranscriptionsCount.current -= 1;
-        if (pendingTranscriptionsCount.current === 0) {
+        // Release analyzing state only when ALL chunks are done
+        if (pendingTranscriptionsCount.current <= 0) {
+            pendingTranscriptionsCount.current = 0; // Safety clamp
             setIsAnalyzing(false);
-            if (statusRef.current === 'transcribing') {
-                onStatusChange(settings.enabled ? 'idle' : 'paused');
+            // Revert to idle only if we are not currently recording another chunk
+            if (!isRecordingRef.current) {
+                 onStatusChange(settings.enabled ? 'idle' : 'paused');
             }
         }
     }
-  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength]);
+  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, settings.enabled]);
+
+  // We need a ref to access isRecording inside callbacks without dependency loops
+  const isRecordingRef = useRef(isRecording);
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
 
   const toggleRecording = useCallback(async () => {
-    // If we were doing a DEV recording, stop it and ensure clean state
-    if (isDevRecording) {
-        await stopRecording();
-        setIsDevRecording(false);
-        onStatusChange(settings.enabled ? 'idle' : 'paused');
-        return;
-    }
-
-    if (isRecording) {
-        await stopRecording();
-    } else {
-        resetProcessor();
-
-        const success = await startRecording(
-            async (b64, mime) => { await handleAudioChunk(b64, mime); },
-            (newStatus) => setVisualizerStatus(newStatus)
-        );
-        if (success) {
-            onStatusChange('recording');
-            setVisualizerStatus('listening');
+    if (toggleLockRef.current) return;
+    toggleLockRef.current = true;
+    lastInteractionTimeRef.current = Date.now();
+    
+    try {
+        if (isDevRecording) {
+            await stopRecording();
+            setIsDevRecording(false);
+            onStatusChange(settings.enabled ? 'idle' : 'paused');
+            return;
         }
-    }
-  }, [isRecording, stopRecording, startRecording, onStatusChange, handleAudioChunk, resetProcessor, isDevRecording, settings.enabled]);
 
-  // New: Developer Mode Toggle (Visual Only)
+        if (isRecordingRef.current) {
+            // STOPPING
+            await stopRecording();
+            setVisualizerStatus('idle');
+            
+            // FORCE ANALYZING STATE IMMEDIATELY to lock UI
+            // This gives immediate visual feedback while the final chunk processes
+            onStatusChange('transcribing');
+            setIsAnalyzing(true);
+            
+            // Safety timeout: If no chunks arrive within 2 seconds (e.g. silence), reset to idle
+            setTimeout(() => {
+                if (pendingTranscriptionsCount.current === 0) {
+                    setIsAnalyzing(false);
+                    if (statusRef.current === 'transcribing') {
+                        onStatusChange(settings.enabled ? 'idle' : 'paused');
+                    }
+                }
+            }, 2000);
+
+        } else {
+            // STARTING
+            // Reset state
+            resetProcessor();
+            pendingTranscriptionsCount.current = 0;
+
+            const success = await startRecording(
+                async (b64, mime) => { await handleAudioChunk(b64, mime); },
+                (newStatus) => setVisualizerStatus(newStatus)
+            );
+            
+            if (success) {
+                onStatusChange('recording');
+                setVisualizerStatus('listening');
+            }
+        }
+    } finally {
+        setTimeout(() => { toggleLockRef.current = false; }, 500);
+    }
+  }, [stopRecording, startRecording, onStatusChange, handleAudioChunk, resetProcessor, isDevRecording, settings.enabled]);
+
   const toggleDevRecording = useCallback(async () => {
-     // If normal recording is active, stop it
      if (isRecording && !isDevRecording) {
          await stopRecording();
          return;
@@ -511,9 +580,8 @@ export const useSmartEditor = ({
          onStatusChange(settings.enabled ? 'idle' : 'paused');
      } else {
          resetProcessor();
-         // Pass empty callback for chunks so no data is sent/processed
          const success = await startRecording(
-             async () => {}, // NO-OP
+             async () => {}, 
              (newStatus) => setVisualizerStatus(newStatus)
          );
          if (success) {
@@ -534,7 +602,7 @@ export const useSmartEditor = ({
       finalizedSentences,
       aiFixedSegments,
       dictatedSegments, 
-      unknownSegments, // EXPORT
+      unknownSegments,
       textareaRef,
       backdropRef,
       isBusy: status !== 'idle' && status !== 'typing' && status !== 'paused' && status !== 'done',
@@ -562,6 +630,6 @@ export const useSmartEditor = ({
       handleMediaFile, 
       toggleDevRecording, 
       isDevRecording,
-      processingOverlay // Pass to UI
+      processingOverlay
   };
 };

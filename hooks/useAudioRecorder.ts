@@ -17,6 +17,9 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   const [isRecording, setIsRecording] = useState(false);
   const [autoStopCountdown, setAutoStopCountdown] = useState<number | null>(null);
   
+  // "Source of Truth" ref
+  const isRecordingRef = useRef(false);
+  
   // Audio Context & Analysis
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -28,76 +31,96 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   
-  // Smart Slicing Logic
+  // Callbacks
   const onChunkCallbackRef = useRef<((base64: string, mimeType: string) => Promise<void>) | null>(null);
   const onStatusCallbackRef = useRef<((status: VisualizerStatus) => void) | null>(null);
+  
+  // Logic
   const silenceStartRef = useRef<number | null>(null);
   const checkSilenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isSlicingRef = useRef(false);
 
-  // VAD (Voice Activity Detection) State for current chunk
+  // VAD State
   const maxRmsInCurrentSliceRef = useRef<number>(0);
 
   // Constants
-  const SLICE_TIMEOUT = 1200; // Increased to 1.2s to prevent cutting mid-sentence
-  const AUTO_STOP_TIMEOUT = 6000; // 6.0s of silence stops recording
+  const SLICE_TIMEOUT = 1200; 
+  const AUTO_STOP_TIMEOUT = 6000; 
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      cleanup();
-    };
+  // Cleanup Function
+  const cleanup = useCallback(() => {
+    // 1. Mark as stopped to prevent NEW intervals
+    isRecordingRef.current = false;
+    setIsRecording(false);
+    setAutoStopCountdown(null);
+
+    // 2. Kill Timers
+    if (checkSilenceIntervalRef.current) {
+        clearInterval(checkSilenceIntervalRef.current);
+        checkSilenceIntervalRef.current = null;
+    }
+
+    // 3. Stop Recorder
+    // NOTE: We do NOT clear audioChunksRef here anymore. 
+    // We let mediaRecorder.onstop handle the final data flush.
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+          mediaRecorderRef.current.stop();
+      } catch (e) {
+          console.warn("Error stopping recorder:", e);
+      }
+    }
+    mediaRecorderRef.current = null;
+
+    // 4. Kill Stream Tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+          try {
+              track.stop();
+          } catch(e) {}
+      });
+      streamRef.current = null;
+    }
+
+    // 5. Close Context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      try {
+          audioContextRef.current.close();
+      } catch(e) {}
+      audioContextRef.current = null;
+    }
   }, []);
 
-  const cleanup = () => {
-    if (checkSilenceIntervalRef.current) clearInterval(checkSilenceIntervalRef.current);
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-    }
-    setAutoStopCountdown(null);
-  };
+  useEffect(() => {
+    return () => cleanup();
+  }, [cleanup]);
 
-  // Improved RMS Calculation for Time Domain Data
   const calculateTimeDomainRMS = (dataArray: Uint8Array) => {
     let sum = 0;
-    // Time Domain: Values are 0-255 where 128 is silence (center)
     for (let i = 0; i < dataArray.length; i++) {
-      const x = (dataArray[i] - 128) / 128.0; // Normalize to -1 to 1
+      const x = (dataArray[i] - 128) / 128.0; 
       sum += x * x;
     }
     return Math.sqrt(sum / dataArray.length);
   };
 
   const processChunk = async (blob: Blob) => {
-    if (blob.size === 0) return;
+    if (!blob || blob.size === 0) return;
 
     if (onStatusCallbackRef.current) {
         onStatusCallbackRef.current('analyzing_listening');
     }
 
-    // REMOVED: Strict VAD Check inside processChunk.
-    // We trust that if a chunk is produced (via manual stop or auto-slice), 
-    // it should be sent to Gemini. Gemini handles silence gracefully (returns empty string).
-    // This prevents the "nothing happens" issue when the user speaks quietly or briefly.
-
     try {
-      // Direct Base64 conversion without re-encoding to WAV.
-      // Gemini supports webm/opus natively and it handles silence well.
       const reader = new FileReader();
       reader.onloadend = () => {
         const result = reader.result as string;
         if (result && onChunkCallbackRef.current) {
           const base64 = result.split(',')[1];
-          // Get the actual MIME type from the blob/recorder
           const actualMimeType = blob.type || 'audio/webm';
-          console.log(`Sending audio chunk: ${Math.round(blob.size / 1024)}KB, MIME: ${actualMimeType}`);
-          onChunkCallbackRef.current(base64, actualMimeType);
+          
+          onChunkCallbackRef.current(base64, actualMimeType)
+            .catch(err => console.error("Chunk upload error:", err));
         }
       };
       reader.readAsDataURL(blob);
@@ -109,37 +132,44 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   const startMediaRecorder = (stream: MediaStream) => {
     let options: MediaRecorderOptions | undefined = undefined;
     
-    // Prefer efficient codecs supported by Gemini
     if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
         options = { mimeType: 'audio/webm;codecs=opus' };
     } else if (MediaRecorder.isTypeSupported('audio/webm')) {
         options = { mimeType: 'audio/webm' };
     } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        options = { mimeType: 'audio/mp4' }; // Safari support
+        options = { mimeType: 'audio/mp4' };
     }
 
-    const mediaRecorder = new MediaRecorder(stream, options);
-    mediaRecorderRef.current = mediaRecorder;
-    audioChunksRef.current = [];
-    
-    maxRmsInCurrentSliceRef.current = 0;
-    
-    if (onStatusCallbackRef.current) onStatusCallbackRef.current('listening');
+    try {
+        const mediaRecorder = new MediaRecorder(stream, options);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+        maxRmsInCurrentSliceRef.current = 0;
+        
+        if (onStatusCallbackRef.current) onStatusCallbackRef.current('listening');
 
-    mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        audioChunksRef.current.push(event.data);
-      }
-    };
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
 
-    mediaRecorder.onstop = () => {
-      const mimeType = mediaRecorder.mimeType || 'audio/webm';
-      const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-      audioChunksRef.current = [];
-      processChunk(audioBlob);
-    };
+        mediaRecorder.onstop = () => {
+          // Process if data exists.
+          // REMOVED check for isRecordingRef.current to allow processing of final chunk after stop.
+          if (audioChunksRef.current.length > 0) {
+              const mimeType = mediaRecorder.mimeType || 'audio/webm';
+              const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+              audioChunksRef.current = []; 
+              processChunk(audioBlob);
+          }
+        };
 
-    mediaRecorder.start();
+        mediaRecorder.start();
+    } catch (e) {
+        console.error("Failed to create MediaRecorder", e);
+        cleanup();
+    }
   };
 
   const startRecording = useCallback(async (
@@ -159,52 +189,47 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       audioContextRef.current = audioCtx;
       
       const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 512; // Increased for better time-domain resolution
-      analyser.smoothingTimeConstant = 0.3; // Faster response for VAD
-      
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.3;
       analyserRef.current = analyser;
       
       const source = audioCtx.createMediaStreamSource(stream);
       sourceRef.current = source;
       source.connect(analyser);
 
-      // Data for Visualization (Frequency)
       const bufferLength = analyser.frequencyBinCount;
       const freqDataArray = new Uint8Array(bufferLength);
       visualizerDataRef.current = freqDataArray;
-
-      // Data for VAD (Time Domain - Volume)
       const timeDataArray = new Uint8Array(bufferLength);
 
       startMediaRecorder(stream);
+      
+      isRecordingRef.current = true;
       setIsRecording(true);
       silenceStartRef.current = Date.now();
 
       checkSilenceIntervalRef.current = setInterval(() => {
+        if (!isRecordingRef.current) {
+            cleanup();
+            return;
+        }
+        
         if (!analyserRef.current || !mediaRecorderRef.current) return;
 
-        // 1. Get Frequency Data for UI Visualizer
         analyserRef.current.getByteFrequencyData(freqDataArray);
-
-        // 2. Get Time Domain Data for Accurate Volume/VAD
         analyserRef.current.getByteTimeDomainData(timeDataArray);
         
-        // Calculate true volume
         const rms = calculateTimeDomainRMS(timeDataArray);
-        
         if (rms > maxRmsInCurrentSliceRef.current) {
             maxRmsInCurrentSliceRef.current = rms;
         }
         
-        // Threshold Logic
-        const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.15);
+        const thresholdRMS = Math.max(0.01, (silenceThresholdSetting / 100) * 0.2);
 
         if (rms > thresholdRMS) {
-          // SPEECH DETECTED
           silenceStartRef.current = null;
           setAutoStopCountdown(null);
         } else {
-          // SILENCE DETECTED
           if (silenceStartRef.current === null) {
             silenceStartRef.current = Date.now();
           } else {
@@ -243,37 +268,19 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
             }
           }
         }
-      }, 50); // Check every 50ms for more responsive VAD
+      }, 50);
 
       return true;
     } catch (error) {
       console.error("Error accessing microphone:", error);
+      cleanup();
       return false;
     }
-  }, [silenceThresholdSetting]); 
+  }, [silenceThresholdSetting, cleanup]); 
 
   const stopRecording = useCallback(async (): Promise<void> => {
-    console.log("Stopping recording...");
-    if (checkSilenceIntervalRef.current) clearInterval(checkSilenceIntervalRef.current);
-    setAutoStopCountdown(null);
-    
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-
-    // Wait slightly to allow onstop to fire
-    setTimeout(() => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-        if (audioContextRef.current) {
-            audioContextRef.current.close();
-            audioContextRef.current = null;
-        }
-        setIsRecording(false);
-    }, 200);
-  }, []);
+    cleanup();
+  }, [cleanup]);
 
   return {
     isRecording,

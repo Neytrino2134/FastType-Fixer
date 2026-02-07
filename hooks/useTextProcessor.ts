@@ -29,7 +29,8 @@ interface UseTextProcessorProps {
     finalizedSentences: Set<string>;
     addFinalizedSentence: (s: string) => void;
     addAiFixedSegment: (s: string) => void; 
-    addUnknownSegments: (words: string[]) => void; // NEW
+    unknownSegments: Set<string>; // NEW: Read access to determine if text is clean
+    addUnknownSegments: (words: string[]) => void;
     saveCheckpoint: (text: string, committed: number, corrected: number, tags?: string[]) => void;
     saveCheckpoints: (snapshots: { text: string, committedLength: number, correctedLength: number, checkedLength?: number, tags: string[] }[]) => void;
     onStatsUpdate: (count: number) => void;
@@ -55,6 +56,7 @@ export const useTextProcessor = ({
     finalizedSentences,
     addFinalizedSentence,
     addAiFixedSegment,
+    unknownSegments,
     addUnknownSegments,
     saveCheckpoint,
     saveCheckpoints,
@@ -72,10 +74,15 @@ export const useTextProcessor = ({
     // VISUAL FEEDBACK STATE
     const [processingOverlay, setProcessingOverlay] = useState<ProcessingOverlay | null>(null);
 
+    // Helper: Clean word locally to match worker logic for set lookups
+    const cleanWordLocally = (w: string) => w.toLowerCase().replace(/[^a-zA-Zа-яА-ЯёЁ0-9'‘`ʻғқҳўҒҚҲЎ]/g, '').trim();
+
     // Core Logic Cycle
     const performCycle = async () => {
         const fullText = textRef.current;
-        const isAiEnabled = settingsRef.current.enabled;
+        // Use settings directly to determine if we should process
+        const settings = settingsRef.current;
+        const isAiEnabled = settings.enabled;
 
         // ---------------------------------------------------------
         // PRIORITY -1: GREEN SKIP (Fast-Forward Known Blocks)
@@ -132,7 +139,7 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         // PRIORITY 0: MINI-SCRIPTS (Fast Regex Fixes)
         // ---------------------------------------------------------
-        if (settingsRef.current.miniScripts) {
+        if (settings.miniScripts) {
              const processed = runMiniScripts(fullText);
              if (processed !== fullText) {
                  onAutoFormat(processed);
@@ -149,9 +156,7 @@ export const useTextProcessor = ({
             // Check for ANY sentence terminator.
             const matches = unfinalizedText.match(/[.!?](\s|$)/g);
             
-            // CHANGED: >= 1 match triggers bulk logic.
-            // This ensures pasted sentences (even single ones) are processed immediately 
-            // as a whole block, skipping word-by-word dictionary checks.
+            // >= 1 match triggers bulk logic for pasted/long segments
             if (matches && matches.length >= 1) {
                 const blocks = splitIntoBlocks(unfinalizedText);
                 let bulkEndIndex = 0;
@@ -164,7 +169,8 @@ export const useTextProcessor = ({
                     }
                 }
 
-                if (hasValidContent && bulkEndIndex > 0) {
+                // Only run bulk if flags are active
+                if (hasValidContent && bulkEndIndex > 0 && settings.fixTypos && settings.fixPunctuation) {
                      const bulkSegment = unfinalizedText.slice(0, bulkEndIndex);
                      await runBulkFinalization(bulkSegment, committedLen);
                      return;
@@ -175,7 +181,7 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         // PRIORITY 1: STANDARD FINALIZATION (Blue/Purple -> Green)
         // ---------------------------------------------------------
-        if (isAiEnabled && settingsRef.current.fixPunctuation) {
+        if (isAiEnabled && settings.fixPunctuation) {
             const effectiveCorrectedLen = Math.min(correctedLen, absoluteLimit);
             
             if (effectiveCorrectedLen > committedLen) {
@@ -196,14 +202,35 @@ export const useTextProcessor = ({
         }
 
         // ---------------------------------------------------------
-        // PRIORITY 2: AI CORRECTION (Red -> Purple)
+        // PRIORITY 2: AI CORRECTION (Red -> Purple OR Blue)
         // ---------------------------------------------------------
+        // Logic: Scan for errors. If none, promote to Blue (Corrected) without AI.
+        // If errors exist, send the whole chunk to AI (Purple).
         const effectiveCheckedLen = Math.min(checkedLen, absoluteLimit);
         
-        if (isAiEnabled && settingsRef.current.fixTypos && effectiveCheckedLen > correctedLen) {
+        if (isAiEnabled && effectiveCheckedLen > correctedLen) {
             const redZone = fullText.slice(correctedLen, effectiveCheckedLen);
+            
             if (redZone.trim()) {
-                await runAiCorrection(redZone, correctedLen);
+                // 1. Analyze if this zone contains any known errors
+                const words = redZone.split(/([ \n\t.,!?;:()""«»—\-\/_+]+)/);
+                let hasUnknowns = false;
+
+                for (const w of words) {
+                    const clean = cleanWordLocally(w);
+                    if (clean.length > 3 && unknownSegments.has(clean)) {
+                        hasUnknowns = true;
+                        break;
+                    }
+                }
+
+                if (hasUnknowns && settings.fixTypos) {
+                    // DIRTY + Fix Enabled: Send to AI
+                    await runAiCorrection(redZone, correctedLen);
+                } else if (!hasUnknowns || !settings.fixTypos) {
+                    // CLEAN or Fix Disabled: Just mark as corrected to move pipeline forward
+                    setCorrectedLength(effectiveCheckedLen);
+                }
                 return;
             } else {
                 setCorrectedLength(effectiveCheckedLen);
@@ -214,24 +241,47 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         // PRIORITY 3: DICTIONARY CHECK (Grey -> Red/Blue)
         // ---------------------------------------------------------
-        if (settingsRef.current.dictionaryCheck && absoluteLimit > checkedLen) {
+        if (settings.dictionaryCheck && absoluteLimit > checkedLen) {
             const greyZone = fullText.slice(checkedLen, absoluteLimit);
             
             let chunkEnd = 0;
-            const words = greyZone.split(/(\s+)/);
-            let wordCount = 0;
+            const rawWords = greyZone.split(/(\s+)/);
+            let meaningfulWordsCount = 0;
             
-            for (const w of words) {
+            let lastMeaningfulWord = "";
+            let endsWithPunctuation = false;
+
+            for (const w of rawWords) {
                 chunkEnd += w.length;
                 if (w.trim()) {
-                    wordCount++;
+                    meaningfulWordsCount++;
+                    lastMeaningfulWord = w.trim();
+                    if (/[.!?]/.test(lastMeaningfulWord)) {
+                        endsWithPunctuation = true;
+                        break; // Sentence end triggers check immediately
+                    } else {
+                        endsWithPunctuation = false;
+                    }
                 }
-                if (wordCount >= 3 || /[.!?]/.test(w)) break;
+                
+                // If we hit enough words, we might break, BUT...
+                // RULE: If the last word is SHORT (<= 3 chars), wait for more context (next long word)
+                if (meaningfulWordsCount >= 3) {
+                    const cleanLast = cleanWordLocally(lastMeaningfulWord);
+                    if (cleanLast.length > 3 || endsWithPunctuation) {
+                        break;
+                    }
+                    // Else: continue loop to gather more context
+                }
             }
 
             const isAtEnd = (checkedLen + chunkEnd) >= fullText.length;
             
-            if (chunkEnd > 0 && (wordCount >= 3 || isAtEnd || /[.!?]/.test(greyZone))) {
+            // Only trigger check if we have enough words AND the end condition is met
+            // (Wait for long word or punctuation)
+            const isChunkReady = meaningfulWordsCount >= 3 && (cleanWordLocally(lastMeaningfulWord).length > 3 || endsWithPunctuation);
+
+            if (chunkEnd > 0 && (isChunkReady || isAtEnd || endsWithPunctuation)) {
                 const chunkToTest = greyZone.slice(0, chunkEnd);
                 await runDictionaryCheck(chunkToTest, checkedLen);
                 return;
@@ -335,7 +385,11 @@ export const useTextProcessor = ({
 
             if (finalChunk !== textChunk) {
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
-                if (!newFullText) return;
+                if (!newFullText) {
+                    // Force state cleanup if replacement fails
+                    onStatusChange('error');
+                    return;
+                }
 
                 onStatsUpdate(1);
                 
@@ -419,7 +473,10 @@ export const useTextProcessor = ({
 
             if (finalChunk !== textChunk) {
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
-                if (!newFullText) return;
+                if (!newFullText) {
+                    onStatusChange('error');
+                    return;
+                }
 
                 onStatsUpdate(1);
                 addAiFixedSegment(normalizeBlock(finalChunk));
@@ -454,6 +511,7 @@ export const useTextProcessor = ({
             if (textRef.current.length >= startOffset + textChunk.length) {
                 setCorrectedLength(startOffset + textChunk.length);
             }
+            onStatusChange('error');
         } finally {
             setProcessingOverlay(null);
         }
@@ -489,7 +547,10 @@ export const useTextProcessor = ({
 
             if (finalChunk !== textChunk) {
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
-                if (!newFullText) return;
+                if (!newFullText) {
+                    onStatusChange('error');
+                    return;
+                }
 
                 onStatsUpdate(1);
                 
@@ -532,6 +593,7 @@ export const useTextProcessor = ({
              if (textRef.current.length >= startOffset + textChunk.length) {
                 setCommittedLength(startOffset + textChunk.length);
              }
+             onStatusChange('error');
         } finally {
             setProcessingOverlay(null);
         }
@@ -554,6 +616,15 @@ export const useTextProcessor = ({
     
     const performCycleRef = useRef(performCycle);
     useEffect(() => { performCycleRef.current = performCycle; });
+
+    // TRIGGER: When settings are toggled (Resumed), immediately try to process
+    useEffect(() => {
+        const { fixTypos, fixPunctuation, dictionaryCheck } = settingsRef.current;
+        // If any of the "Smart" settings are active and we are not currently processing, trigger a cycle immediately
+        if ((fixTypos || fixPunctuation || dictionaryCheck) && !isProcessingRef.current) {
+            if (performCycleRef.current) performCycleRef.current();
+        }
+    }, [settingsRef.current.fixTypos, settingsRef.current.fixPunctuation, settingsRef.current.dictionaryCheck]);
 
     const processTick = useCallback(async () => {
         if (isProcessingRef.current) return;

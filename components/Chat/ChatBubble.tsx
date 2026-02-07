@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { ChatMessage } from '../../types';
 import { Bot, User } from 'lucide-react';
@@ -15,7 +16,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
       <div className={`flex max-w-[85%] md:max-w-[75%] ${isUser ? 'flex-row-reverse' : 'flex-row'} gap-4`}>
         
         {/* Avatar */}
-        <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 shadow-lg ${
+        <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center mt-1 shadow-lg select-none ${
             isUser ? 'bg-indigo-600' : 'bg-slate-700'
         }`}>
             {isUser ? <User className="w-5 h-5 text-indigo-100" /> : <Bot className="w-5 h-5 text-slate-300" />}
@@ -26,7 +27,7 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
             
             {/* Attachment Image */}
             {message.attachment && message.attachment.type === 'image' && (
-                <div className="rounded-xl overflow-hidden border border-slate-700/50 shadow-md max-w-full">
+                <div className="rounded-xl overflow-hidden border border-slate-700/50 shadow-md max-w-full select-none">
                     <img 
                         src={`data:${message.attachment.mimeType};base64,${message.attachment.data}`} 
                         alt="attachment" 
@@ -37,13 +38,13 @@ export const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
 
             {/* Text Content */}
             {(message.text || message.isTyping) && (
-                <div className={`relative px-5 py-4 rounded-2xl text-sm leading-relaxed shadow-md ${
+                <div className={`relative px-5 py-4 rounded-2xl text-sm leading-relaxed shadow-md select-text cursor-text ${
                     isUser 
                         ? 'bg-indigo-600/20 border border-indigo-500/30 text-indigo-100 rounded-tr-none' 
                         : 'bg-slate-800/80 border border-slate-700/50 text-slate-200 rounded-tl-none'
                 }`}>
                     {message.isTyping && !message.text ? (
-                        <div className="flex gap-1.5 items-center h-5 px-2">
+                        <div className="flex gap-1.5 items-center h-5 px-2 select-none">
                             <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                             <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                             <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>

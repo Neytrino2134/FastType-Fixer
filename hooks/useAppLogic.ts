@@ -17,15 +17,14 @@ const DEFAULT_SETTINGS: CorrectionSettings = {
   silenceThreshold: 15,
   audioModel: 'gemini-2.5-flash',
   economyMode: true,
-  dictionaryCheck: true, // Default enabled
-  // Visualizer Defaults
+  dictionaryCheck: true, 
   visualizerLowCut: 0,
   visualizerHighCut: 128,
   visualizerAmp: 0.4,
-  visualizerStyle: 'wave', // Default changed to 'wave'
+  visualizerStyle: 'wave', 
   visualizerNorm: false,
   visualizerGravity: 2.0,
-  visualizerMirror: true, // Default changed to true
+  visualizerMirror: true, 
   developerMode: false
 };
 
@@ -52,7 +51,6 @@ export const useAppLogic = () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
       if (saved) {
-        // Merge saved settings with defaults to ensure all keys exist (if new settings added in future)
         return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
       }
     } catch (e) {
@@ -131,13 +129,11 @@ export const useAppLogic = () => {
   const handleStartApp = useCallback((key: string) => {
     localStorage.setItem('gemini_api_key', key);
     setGeminiApiKey(key);
-    // FIX: Force reset tab to editor to prevent "sliding" effect if user left on another tab
     setCurrentTab('editor'); 
-    setStatus('idle'); // Ensure status is clean
+    setStatus('idle'); 
     setAppState('app');
   }, []);
 
-  // New: Update Key without full reset
   const handleUpdateKey = useCallback((key: string) => {
     localStorage.setItem('gemini_api_key', key);
     setGeminiApiKey(key);
@@ -153,7 +149,7 @@ export const useAppLogic = () => {
     setShowClipboard(false);
     setShowHelp(false);
     setShowHistory(false);
-    setCurrentTab('editor'); // Reset to editor
+    setCurrentTab('editor');
   }, [lockCode]);
 
   const handleSetLock = useCallback((code: string) => {
@@ -168,35 +164,21 @@ export const useAppLogic = () => {
     setIsLocked(false);
   }, []);
 
-  // NEW: Validate PIN for Settings changes (Change/Remove)
   const validatePin = useCallback((input: string) => {
       return input === lockCode;
   }, [lockCode]);
 
-  // NEW: Handle Full Data Wipe
   const handleWipeData = useCallback(() => {
-    // 1. Remove Lock
     localStorage.removeItem('fasttype_lock_code');
     setLockCode('');
     setIsLocked(false);
-
-    // 2. Clear Clipboard
     localStorage.removeItem('fasttype_clipboard');
     setClipboardHistory([]);
-
-    // 3. Clear Stats
     setStats({ corrections: 0 });
-
-    // 4. Force Unlock logic
     setIsLocked(false);
-    
-    // Note: Editor history wipe happens in App.tsx via Ref, but we clear LS key here just in case
     localStorage.removeItem('fasttype_editor_state_v2');
-    
-    // Also reset settings to default
     setSettings(DEFAULT_SETTINGS);
     localStorage.removeItem(STORAGE_KEY_SETTINGS);
-
     return true;
   }, []);
 
@@ -220,7 +202,13 @@ export const useAppLogic = () => {
   }, []);
 
   const toggleLanguage = useCallback(() => {
-    setLanguage(prev => (prev === 'ru' ? 'en' : 'ru'));
+    // Cycle: ru -> uz-latn -> uz-cyrl -> en -> ru
+    setLanguage(prev => {
+        if (prev === 'ru') return 'uz-latn';
+        if (prev === 'uz-latn') return 'uz-cyrl';
+        if (prev === 'uz-cyrl') return 'en';
+        return 'ru';
+    });
   }, []);
 
   const toggleSettings = useCallback(() => {
@@ -260,7 +248,6 @@ export const useAppLogic = () => {
 
   const handleClipboardAction = useCallback((text: string) => {
     if (!settings.clipboardEnabled || !text) return;
-    
     setClipboardHistory(prev => {
        const newItem: ClipboardItem = {
          id: Math.random().toString(36).substring(7),
@@ -277,7 +264,6 @@ export const useAppLogic = () => {
 
   const handleResetProcessor = useCallback(() => {
     setResetSignal(prev => prev + 1);
-    // Force resume and enable all checks to ensure a clean working state
     setSettings(prev => ({
         ...prev,
         enabled: true,
@@ -291,22 +277,26 @@ export const useAppLogic = () => {
 
   const handleToggleProcessing = useCallback(() => {
     setSettings(prev => {
-        const nextState = !prev.enabled;
-        setStatus(nextState ? 'idle' : 'paused'); 
-        
-        // If enabling, also enable all sub-features for "Global Resume"
-        if (nextState) {
-            return { 
-                ...prev, 
-                enabled: true, 
-                miniScripts: true, 
-                fixTypos: true, 
-                fixPunctuation: true, 
-                dictionaryCheck: true 
+        // Master Toggle Logic
+        if (prev.enabled) {
+            // PAUSE
+            setStatus('paused');
+            return {
+                ...prev,
+                enabled: false // Explicitly disable to trigger "Paused" UI
+            };
+        } else {
+            // RESUME
+            setStatus('idle');
+            return {
+                ...prev,
+                enabled: true,
+                // Restore smart flags to ensure good experience on resume
+                fixTypos: true,
+                fixPunctuation: true,
+                dictionaryCheck: true
             };
         }
-        
-        return { ...prev, enabled: nextState };
     });
   }, []);
 
@@ -326,16 +316,17 @@ export const useAppLogic = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Help
       if (e.code === 'F1') {
         e.preventDefault();
         toggleHelp();
         return;
       }
-
+      
+      // Home / Exit
       if (e.code === 'Home') {
         const target = e.target as HTMLElement;
         const isInput = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable;
-        
         if (!isInput) {
             e.preventDefault();
             handleReturnToWelcome();
@@ -343,13 +334,36 @@ export const useAppLogic = () => {
         }
       }
 
+      // Tab Switching (Ctrl + 1..4)
+      if (e.ctrlKey || e.metaKey) {
+          switch (e.code) {
+              case 'Digit1':
+                  e.preventDefault();
+                  setCurrentTab('editor');
+                  break;
+              case 'Digit2':
+                  e.preventDefault();
+                  setCurrentTab('chat');
+                  break;
+              case 'Digit3':
+                  e.preventDefault();
+                  setCurrentTab('translator');
+                  break;
+              case 'Digit4':
+                  e.preventDefault();
+                  setCurrentTab('planner');
+                  break;
+          }
+      }
+
+      // Alt Hotkeys
       if (e.altKey) {
         switch (e.code) {
           case 'KeyS':
             e.preventDefault();
             toggleSettings();
             break;
-          case 'KeyW': // Changed from KeyV to KeyW
+          case 'KeyV': 
             e.preventDefault();
             toggleClipboard();
             break;
@@ -360,7 +374,6 @@ export const useAppLogic = () => {
         }
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleSettings, toggleClipboard, toggleHelp, toggleHistory, handleReturnToWelcome]);
@@ -394,7 +407,7 @@ export const useAppLogic = () => {
       handleStartApp,
       handleReturnToWelcome,
       handleResetKey,
-      handleUpdateKey, // Exported
+      handleUpdateKey,
       incrementStats,
       toggleLanguage,
       toggleSettings,
@@ -409,7 +422,7 @@ export const useAppLogic = () => {
       handleSetLock,
       handleRemoveLock,
       handleUnlock,
-      validatePin, // New Action
+      validatePin,
       setCurrentTab,
       handleToggleProcessing,
       handleTogglePin,

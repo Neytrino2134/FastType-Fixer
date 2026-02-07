@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback } from 'react';
 import { Send, Mic, Square, Paperclip, X, Image as ImageIcon, FileText } from 'lucide-react';
 import { Attachment } from '../../types';
@@ -9,6 +8,8 @@ interface ChatInputProps {
   isRecording: boolean;
   isLoading: boolean;
   placeholder: string;
+  value: string; // Controlled value
+  onChange: (text: string) => void; // Controlled change handler
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ 
@@ -16,9 +17,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onRecordToggle, 
     isRecording, 
     isLoading,
-    placeholder
+    placeholder,
+    value,
+    onChange
 }) => {
-  const [text, setText] = useState('');
   const [attachment, setAttachment] = useState<Attachment | undefined>(undefined);
   const [isDragging, setIsDragging] = useState(false);
   
@@ -26,9 +28,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
-      if ((!text.trim() && !attachment) || isLoading) return;
-      onSend(text, attachment);
-      setText('');
+      if ((!value.trim() && !attachment) || isLoading) return;
+      onSend(value, attachment);
       setAttachment(undefined);
       if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
@@ -41,7 +42,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setText(e.target.value);
+      onChange(e.target.value);
       // Auto-resize
       e.target.style.height = 'auto';
       e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
@@ -55,7 +56,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         const reader = new FileReader();
         reader.onload = (e) => {
             const content = e.target?.result as string;
-            setText(prev => prev + (prev ? '\n' : '') + content);
+            onChange(value + (value ? '\n' : '') + content);
             if (textareaRef.current) {
                 setTimeout(() => {
                     if (textareaRef.current) {
@@ -87,7 +88,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         reader.readAsDataURL(file);
         return;
     }
-  }, []);
+  }, [value, onChange]);
 
   // --- Handlers ---
 
@@ -192,7 +193,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             {/* Text Input */}
             <textarea
                 ref={textareaRef}
-                value={text}
+                value={value}
                 onChange={handleChange}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
@@ -202,12 +203,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 className="w-full bg-transparent border-none focus:ring-0 resize-none text-slate-200 placeholder:text-slate-600 max-h-[120px] py-2.5 px-0 custom-scrollbar disabled:opacity-50 text-base md:text-sm"
             />
 
+            {/* Recording Indicator (INSIDE THE BOX) */}
+            {isRecording && (
+                <div className="flex items-center gap-2 mb-2.5 mr-1 text-red-400 animate-pulse select-none shrink-0 bg-red-950/30 px-2 py-1 rounded-full border border-red-900/50">
+                    <span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:block">Recording</span>
+                </div>
+            )}
+
             {/* Mic Button */}
             <button
                 onClick={onRecordToggle}
                 className={`shrink-0 p-2.5 md:p-2 rounded-lg transition-all touch-manipulation ${
                     isRecording 
-                        ? 'bg-red-500/20 text-red-400 animate-pulse' 
+                        ? 'bg-red-500/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
                         : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-900'
                 }`}
             >
@@ -217,9 +226,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             {/* Send Button */}
             <button
                 onClick={handleSubmit}
-                disabled={(!text.trim() && !attachment) || isLoading}
+                disabled={(!value.trim() && !attachment) || isLoading}
                 className={`shrink-0 p-2.5 md:p-2 rounded-lg transition-all touch-manipulation ${
-                    (text.trim() || attachment) && !isLoading
+                    (value.trim() || attachment) && !isLoading
                         ? 'bg-indigo-600 text-white shadow-lg' 
                         : 'bg-slate-900 text-slate-600 cursor-not-allowed'
                 }`}
@@ -228,10 +237,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </button>
         </div>
       </div>
-      
-      {isRecording && (
-          <p className="text-xs text-center text-red-400 mt-2 animate-pulse">Recording... Speak now</p>
-      )}
     </div>
   );
 };

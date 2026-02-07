@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { ClipboardItem, Language } from '../types';
 import { getTranslation } from '../utils/i18n';
@@ -112,7 +111,7 @@ export const ClipboardHistory: React.FC<ClipboardHistoryProps> = ({
     >
       
       {/* Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center justify-between shrink-0">
+      <div className="p-4 border-b border-slate-800 flex items-center justify-between shrink-0 select-none">
         <div className="flex items-center gap-2">
            <ClipboardList className="w-4 h-4 text-indigo-400" />
            <h3 className="text-sm font-semibold text-slate-200">{t.clipboardTitle}</h3>

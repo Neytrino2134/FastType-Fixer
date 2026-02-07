@@ -1,27 +1,64 @@
+
 import React from 'react';
 
 interface TooltipProps {
   content: string;
   children: React.ReactNode;
   side?: 'top' | 'bottom' | 'left' | 'right';
+  align?: 'start' | 'center' | 'end';
   delay?: number; // Kept for interface compatibility but ignored logic-wise for "instant" feel
 }
 
 export const Tooltip: React.FC<TooltipProps> = ({ 
   content, 
   children, 
-  side = 'top'
+  side = 'top',
+  align = 'center'
 }) => {
   
-  const positionClasses = {
-    top: 'bottom-full left-1/2 -translate-x-1/2 mb-2',
-    bottom: 'top-full left-1/2 -translate-x-1/2 mt-2',
-    left: 'right-full top-1/2 -translate-y-1/2 mr-2',
-    right: 'left-full top-1/2 -translate-y-1/2 ml-2',
+  const getPositionClasses = () => {
+    switch (side) {
+      case 'top':
+        return `bottom-full mb-2 ${
+          align === 'start' ? 'left-0' : align === 'end' ? 'right-0' : 'left-1/2 -translate-x-1/2'
+        }`;
+      case 'bottom':
+        return `top-full mt-2 ${
+          align === 'start' ? 'left-0' : align === 'end' ? 'right-0' : 'left-1/2 -translate-x-1/2'
+        }`;
+      case 'left':
+        return 'right-full top-1/2 -translate-y-1/2 mr-2';
+      case 'right':
+        return 'left-full top-1/2 -translate-y-1/2 ml-2';
+      default:
+        return '';
+    }
+  };
+
+  const getArrowClasses = () => {
+    let base = 'absolute w-2 h-2 bg-slate-800 border-slate-700 transform rotate-45';
+    
+    if (side === 'top') {
+      base += ' bottom-[-5px] border-b border-r';
+      if (align === 'center') base += ' left-1/2 -translate-x-1/2';
+      if (align === 'start') base += ' left-3';
+      if (align === 'end') base += ' right-3';
+    } else if (side === 'bottom') {
+      base += ' top-[-5px] border-t border-l';
+      if (align === 'center') base += ' left-1/2 -translate-x-1/2';
+      if (align === 'start') base += ' left-3';
+      if (align === 'end') base += ' right-3';
+    } else if (side === 'left') {
+      base += ' right-[-5px] top-1/2 -translate-y-1/2 border-t border-r';
+    } else if (side === 'right') {
+      base += ' left-[-5px] top-1/2 -translate-y-1/2 border-b border-l';
+    }
+    
+    return base;
   };
 
   return (
-    <div className="relative flex items-center group z-[100]">
+    <div className="relative flex items-center group z-40 hover:z-[1000] transition-none">
       {children}
       
       <div 
@@ -31,20 +68,12 @@ export const Tooltip: React.FC<TooltipProps> = ({
           whitespace-pre-wrap text-[10px] font-medium text-slate-200 tracking-wide
           opacity-0 group-hover:opacity-100 transition-opacity duration-200
           select-none w-max max-w-[200px] text-center
-          ${positionClasses[side]}
+          ${getPositionClasses()}
         `}
       >
         {content}
         {/* Subtle arrow/caret */}
-        <div 
-            className={`
-                absolute w-2 h-2 bg-slate-800 border-slate-700 transform rotate-45
-                ${side === 'top' ? 'bottom-[-5px] left-1/2 -translate-x-1/2 border-b border-r' : ''}
-                ${side === 'bottom' ? 'top-[-5px] left-1/2 -translate-x-1/2 border-t border-l' : ''}
-                ${side === 'left' ? 'right-[-5px] top-1/2 -translate-y-1/2 border-t border-r' : ''}
-                ${side === 'right' ? 'left-[-5px] top-1/2 -translate-y-1/2 border-b border-l' : ''}
-            `}
-        />
+        <div className={getArrowClasses()} />
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+
 import React, { useEffect, useCallback } from 'react';
 
 interface UseEditorHotkeysProps {
@@ -47,6 +48,9 @@ export const useEditorHotkeys = ({
   // Global Hotkey for Recording (Alt+R) and Pause (Alt+A)
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        // Prevent repeat events (holding key down)
+        if (e.repeat) return;
+
         // Alt+R
         if (e.altKey && e.code === 'KeyR') {
             e.preventDefault();

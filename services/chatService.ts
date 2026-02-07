@@ -1,5 +1,7 @@
+
 import { GoogleGenAI, Content, Part } from "@google/genai";
 import { Language, ChatMessage, Attachment } from "../types";
+import { cleanAudioHallucinations } from "../utils/textCleaner";
 
 const getSystemInstruction = (language: Language) => {
     return language === 'ru' 
@@ -24,11 +26,6 @@ export const streamChatMessage = async function* (
     const ai = new GoogleGenAI({ apiKey });
 
     // --- HISTORY SANITIZATION ---
-    // Convert ChatMessage[] to valid Content[] for the API.
-    // Rules:
-    // 1. Roles must alternate (User -> Model -> User).
-    // 2. Cannot start with 'model'.
-    // 3. Cannot end with 'user' (because we are about to send a new 'user' message).
     
     const validHistory: Content[] = [];
 
@@ -76,14 +73,7 @@ export const streamChatMessage = async function* (
         validHistory.shift();
     }
 
-    // Rule 3: History cannot end with 'user' before we send another 'user' message.
-    // If it does, we must merge the last user message with the new one (conceptually),
-    // BUT since we are using `chat.sendMessageStream`, the SDK handles the "next" message.
-    // We just need to make sure `history` passed to `chats.create` doesn't have a trailing user message *unless* the model expects to continue.
-    // However, Gemini SDK is smart. Usually, we just pass history up to the last point. 
-    // To be safe, if the last message in history is USER, we remove it from `history` config and PREPEND it to our `newMessage`.
-    
-    // Construct the NEW message parts
+    // Rule 3: History cannot end with 'user'
     const currentMessageParts: Part[] = [];
     if (attachment) {
         currentMessageParts.push({
@@ -97,18 +87,14 @@ export const streamChatMessage = async function* (
         currentMessageParts.push({ text: newMessage });
     }
 
-    // Handle trailing user message in history
     if (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
-        const lastUserContent = validHistory.pop(); // Remove it from history configuration
-        
-        // Prepend previous user parts to current message parts to effectively "merge" them
+        const lastUserContent = validHistory.pop();
         if (lastUserContent && lastUserContent.parts) {
             currentMessageParts.unshift(...lastUserContent.parts);
         }
     }
 
     try {
-        // Initialize Chat Session
         const chat = ai.chats.create({
             model: model,
             history: validHistory,
@@ -118,8 +104,6 @@ export const streamChatMessage = async function* (
             }
         });
         
-        // Send Message
-        // FIX: Pass currentMessageParts array directly to message property
         const resultStream = await chat.sendMessageStream({ message: currentMessageParts });
         
         for await (const chunk of resultStream) {
@@ -135,7 +119,7 @@ export const streamChatMessage = async function* (
 
 /**
  * Independent transcription service for Chat Audio.
- * Uses Gemini 3 Flash for consistency.
+ * Uses Gemini 2.5 Flash for better stability on short audio segments.
  */
 export const transcribeChatAudio = async (apiKey: string, base64Audio: string, mimeType: string, language: Language): Promise<string> => {
     if (!apiKey) throw new Error("API Key Missing");
@@ -143,21 +127,54 @@ export const transcribeChatAudio = async (apiKey: string, base64Audio: string, m
 
     try {
         const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview', 
+            // SWITCHED TO 2.5 FLASH for reliability on audio tasks (3.0 Preview can hallucinate on silence)
+            model: 'gemini-2.5-flash', 
             contents: {
                 parts: [
                     { inlineData: { mimeType, data: base64Audio } }
                 ]
             },
             config: {
+                // VERY STRICT Instruction to prevent hallucinations on silence
                 systemInstruction: language === 'ru' 
-                    ? "Транскрибируй аудио. Только текст того, что сказано." 
-                    : "Transcribe the audio. Only the spoken text.",
-                temperature: 0.1
+                    ? "Ты — транскрибатор. Твоя задача: превратить аудио в текст. \nСТРОГИЕ ПРАВИЛА:\n1. Если в аудио только тишина, шум, музыка, дыхание или непонятные звуки — верни ПУСТУЮ СТРОКУ (просто пробел).\n2. Не придумывай текст. Не пиши 'Субтитры', 'Спасибо', 'Продолжение следует'. \n3. Игнорируй слова-паразиты и заикания.\n4. Верни ТОЛЬКО то, что было четко произнесено человеком." 
+                    : "You are a transcriber. Your task: convert audio to text.\nSTRICT RULES:\n1. If audio contains only silence, noise, music, breathing, or unclear sounds - return EMPTY STRING (just a space).\n2. Do NOT hallucinate text. Do NOT write 'Subtitles', 'Thanks', 'Continued'.\n3. Ignore stutters.\n4. Return ONLY what was clearly spoken by a human.",
+                temperature: 0.0, // Zero temperature for deterministic output
             }
         });
 
-        return response.text?.trim() || "";
+        let text = response.text?.trim() || "";
+        
+        // 1. Basic Cleaning
+        text = cleanAudioHallucinations(text, language);
+
+        // 2. Aggressive Hallucination Check
+        // Models often output these specific phrases when hearing silence/white noise
+        const lower = text.toLowerCase();
+        const hallucinations = [
+            "субтитры", "subtitles", "продолжение следует", "to be continued",
+            "спасибо за просмотр", "thanks for watching", "copyright", 
+            "все права защищены", "all rights reserved",
+            "перевод", "translated by", "синхронизация",
+            "конец", "the end", "transcribed by", "audio", "sound",
+            "подпишись", "subscribe", "лайк", "like"
+        ];
+
+        // If the text is very short and contains these words, nuke it.
+        if (text.length < 50) {
+            if (hallucinations.some(h => lower.includes(h))) {
+                console.warn("Hallucination detected and blocked:", text);
+                return "";
+            }
+        }
+
+        // 3. Repeat Check (e.g. "A A A A A")
+        if (/^(.{1,3})\1{4,}$/.test(text.replace(/\s/g, ''))) {
+             return "";
+        }
+        
+        return text;
+        
     } catch (error) {
         console.error("Chat Transcription Error:", error);
         return "";

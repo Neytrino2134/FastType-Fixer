@@ -57,6 +57,10 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
   onToggleClipboard
 }, ref) => {
   const t = getTranslation(language);
+  
+  // Explicit State Definitions
+  const isRecording = status === 'recording';
+  const isAnalyzing = status === 'transcribing'; // This is the specific "Wait" state
   const isEnhancing = status === 'enhancing';
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -88,12 +92,50 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
     if (fileInputRef.current) fileInputRef.current.value = '';
   }
 
+  // Helper to determine Main Button Appearance
+  const getMainButtonConfig = () => {
+      // PRIORITY 1: ANALYZING STATE
+      // Must come first to override recording state during the transition period
+      if (isAnalyzing) {
+          return {
+              text: language === 'ru' ? 'Анализ...' : 'Analyzing...',
+              icon: <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin" />,
+              className: 'bg-sky-500/20 text-sky-400 border-sky-500/50 cursor-wait',
+              disabled: true,
+              tooltip: t.statusTranscribing || "Processing Audio..."
+          };
+      } 
+      // PRIORITY 2: RECORDING STATE
+      else if (isRecording && !isDevRecording) {
+          return {
+              text: t.btnStop,
+              icon: <Square className="w-5 h-5 md:w-4 md:h-4 fill-current animate-pulse" />,
+              className: 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30',
+              disabled: false,
+              tooltip: t.btnStop
+          };
+      } 
+      // PRIORITY 3: IDLE STATE
+      else {
+          return {
+              text: t.btnRecord,
+              icon: <Mic className="w-5 h-5 md:w-4 md:h-4" />,
+              className: isDevRecording 
+                ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700' 
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700',
+              disabled: isDevRecording, // Disable standard mic if Dev Mic is active
+              tooltip: t.btnRecord
+          };
+      }
+  };
+
+  const mainBtn = getMainButtonConfig();
+
   return (
     <div className="absolute bottom-0 md:bottom-6 left-0 md:left-auto md:right-6 w-full md:w-auto flex md:inline-flex items-center justify-between md:justify-start gap-3 md:gap-4 z-30 pointer-events-auto select-none bg-slate-900/90 md:bg-transparent backdrop-blur-lg md:backdrop-blur-none border-t md:border-none border-slate-800 p-3 md:p-0 safe-area-bottom">
       
       {/* LEFT GROUP ON MOBILE (Stats) */}
       <div className="flex items-center gap-3">
-          
           {/* Status Indicators (Hidden on small mobile) */}
           <div className="hidden sm:flex items-center gap-3">
               <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-950/30 rounded border border-emerald-900/50">
@@ -160,7 +202,7 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
             </Tooltip>
         </div>
 
-        {/* CLIPBOARD GROUP (NEW) */}
+        {/* CLIPBOARD GROUP */}
         <div className="flex items-center bg-slate-800 rounded-lg p-1 border border-slate-700 shadow-lg">
             <Tooltip content={t.clipboardTitle} side="top">
                 <button
@@ -188,38 +230,27 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
             </Tooltip>
         )}
 
-        <Tooltip content={status === 'recording' && !isDevRecording ? t.btnStop : t.btnRecord} side="top">
+        {/* MAIN RECORD BUTTON */}
+        <Tooltip content={mainBtn.tooltip} side="top">
             <button
-            onClick={onRecord}
-            disabled={isDevRecording} // Disable real recording if dev recording active
-            className={`flex items-center justify-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${
-                status === 'recording' && !isDevRecording
-                ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30' 
-                : isDevRecording ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-            }`}
+                onClick={onRecord}
+                disabled={mainBtn.disabled}
+                className={`flex items-center justify-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${mainBtn.className}`}
             >
-            {status === 'recording' && !isDevRecording ? (
-                <div className="flex items-center">
-                    {/* Fixed Action Area */}
-                    <div className="flex items-center gap-2">
-                        <Square className="w-5 h-5 md:w-4 md:h-4 fill-current animate-pulse" />
-                        <span className="hidden sm:inline font-semibold">{t.btnStop}</span>
-                    </div>
-                    
-                    {/* Divider */}
-                    <div className="mx-2 h-4 w-px bg-red-400/40"></div>
-                    
-                    {/* Fixed Timer Slot - Prevents resizing jitter */}
-                    <div className="w-4 flex justify-center text-xs font-mono font-bold tabular-nums">
-                        {typeof autoStopCountdown === 'number' ? autoStopCountdown : ''}
-                    </div>
+                <div className="flex items-center gap-2">
+                    {mainBtn.icon}
+                    <span className="hidden sm:inline font-semibold">{mainBtn.text}</span>
                 </div>
-            ) : (
-                <>
-                <Mic className="w-5 h-5 md:w-4 md:h-4" />
-                <span className="hidden sm:inline">{t.btnRecord}</span>
-                </>
-            )}
+                
+                {/* Countdown (Only visible when actively recording) */}
+                {isRecording && !isDevRecording && !isAnalyzing && (
+                    <>
+                        <div className="mx-2 h-4 w-px bg-red-400/40"></div>
+                        <div className="w-4 flex justify-center text-xs font-mono font-bold tabular-nums">
+                            {typeof autoStopCountdown === 'number' ? autoStopCountdown : ''}
+                        </div>
+                    </>
+                )}
             </button>
         </Tooltip>
 
@@ -229,7 +260,7 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
                 type="file"
                 ref={fileInputRef}
                 className="hidden"
-                accept="audio/*,image/*" // Updated accept
+                accept="audio/*,image/*" 
                 onChange={handleFileChange}
              />
              

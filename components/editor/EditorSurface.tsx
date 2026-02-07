@@ -28,6 +28,7 @@ interface EditorSurfaceProps {
   onScroll: (e: React.UIEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onClipboard: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
+  onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void; // Added onPaste
   visualizerDataRef: React.MutableRefObject<Uint8Array | null>;
   onInteraction: () => void;
   isPaused: boolean;
@@ -66,6 +67,7 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
   onScroll,
   onKeyDown,
   onClipboard,
+  onPaste,
   visualizerDataRef,
   onInteraction,
   isPaused,
@@ -112,7 +114,8 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
   };
 
   // Helper to strictly clean a word for unknown list check
-  const cleanWordForCheck = (w: string) => w.toLowerCase().replace(/[^a-zA-Zа-яА-ЯёЁ0-9]/g, '').trim();
+  // UPDATED: Sync regex with worker to include Uzbek/Cyrillic extended chars
+  const cleanWordForCheck = (w: string) => w.toLowerCase().replace(/[^a-zA-Zа-яА-ЯёЁ0-9'‘`ʻғқҳўҒҚҲЎ]/g, '').trim();
 
   const renderedContent = useMemo(() => {
     const blocks = splitIntoBlocks(text);
@@ -121,46 +124,71 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
     const safeChecked = Math.min(Math.max(safeCorrected, checkedLength), text.length);
     const safeChecking = Math.min(Math.max(safeChecked, checkingLength), text.length);
 
+    // STRICT VISUAL SYNC: Only show blinking if status confirms active processing
+    const isProcessingActive = status === 'ai_fixing' || status === 'ai_finalizing' || status === 'enhancing';
+    const activeOverlay = isProcessingActive ? processingOverlay : null;
+
     return blocks.map((block, index) => {
         const normalized = normalizeBlock(block.text);
 
+        // Detect if this block is currently being edited (cursor is inside it)
+        // If the committed point is strictly between start and end, it means we are editing this block
+        // (because committedLength usually tracks the cursor position during edits).
+        const isActiveEditBlock = block.start < safeCommitted && block.end > safeCommitted;
+
         // PRIORITY: If currently processed by AI, pulse the text brightness
         // This overrides standard coloring logic for the duration of the API call
-        if (processingOverlay && block.start >= processingOverlay.start && block.end <= processingOverlay.end) {
-             if (processingOverlay.type === 'fixing') {
+        if (activeOverlay && block.start >= activeOverlay.start && block.end <= activeOverlay.end) {
+             if (activeOverlay.type === 'fixing') {
                  // Pulsing Purple (Fixing)
                  return <span key={index} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
              }
-             if (processingOverlay.type === 'finalizing') {
+             if (activeOverlay.type === 'finalizing') {
                  // Pulsing Green (Finalizing)
                  return <span key={index} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
              }
         }
 
-        if (finalizedSentences.has(normalized)) {
-            return <span key={index} className="text-emerald-500 transition-colors duration-500">{block.text}</span>;
-        }
-        if (dictatedSegments.has(normalized)) {
-            return <span key={index} className="text-orange-400 transition-colors duration-500">{block.text}</span>;
+        // Logic Change: If we are actively editing a block, do NOT apply the Finalized (Green) or Dictated (Orange) status.
+        // This effectively turns the whole block white/raw, even if it was previously green.
+        if (!isActiveEditBlock) {
+            if (finalizedSentences.has(normalized)) {
+                return <span key={index} className="text-emerald-500 transition-colors duration-500">{block.text}</span>;
+            }
+            if (dictatedSegments.has(normalized)) {
+                return <span key={index} className="text-orange-400 transition-colors duration-500">{block.text}</span>;
+            }
         }
 
         const renderSubSegment = (subText: string, subStart: number) => {
             const subEnd = subStart + subText.length;
             
             // Re-check processing overlay for partial chunks (rare but possible)
-            if (processingOverlay && subStart >= processingOverlay.start && subEnd <= processingOverlay.end) {
-                 if (processingOverlay.type === 'fixing') {
+            if (activeOverlay && subStart >= activeOverlay.start && subEnd <= activeOverlay.end) {
+                 if (activeOverlay.type === 'fixing') {
                      return <span key={subStart} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
                  }
-                 if (processingOverlay.type === 'finalizing') {
+                 if (activeOverlay.type === 'finalizing') {
                      return <span key={subStart} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
                  }
             }
 
             // Logic to determine style based on range
             if (subEnd <= safeCommitted) {
-                return <span key={subStart} className="text-emerald-500 transition-colors duration-500">{subText}</span>;
+                // IMPORTANT: If we are actively editing this block, treat it as raw/dirty.
+                // Do not color it green even if parts of it are before the cursor.
+                if (!isActiveEditBlock) {
+                    return <span key={subStart} className="text-emerald-500 transition-colors duration-500">{subText}</span>;
+                }
             }
+
+            // If processing is paused, we skip verification coloring (Blue/Red/Yellow).
+            // Default raw (Grey) is returned.
+            // Note: Green (Committed) and Orange (Dictated) are handled above this check.
+            if (isPaused) {
+                return <span key={subStart} className="text-slate-200 transition-colors duration-200">{subText}</span>;
+            }
+
             if (subEnd <= safeCorrected) {
                 if (aiFixedSegments.has(normalized)) {
                     return <span key={subStart} className="text-violet-400 font-medium transition-colors duration-300">{subText}</span>;
@@ -180,11 +208,21 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
                     <span key={subStart}>
                         {parts.map((part, i) => {
                             if (!part) return null;
-                            // Check if part is a word
-                            const isWord = /[a-zA-Zа-яА-ЯёЁ0-9]/.test(part);
+                            
+                            // 1. Is it a word?
+                            // We allow Uzbek chars in the word test
+                            const isWord = /[a-zA-Zа-яА-ЯёЁ'‘`ʻғқҳўҒҚҲЎ0-9]/.test(part);
+                            
                             if (isWord) {
                                 // Strictly clean to match how worker stores unknowns
                                 const clean = cleanWordForCheck(part);
+                                
+                                // RULE: Ignore short words (< 4 chars) to match Worker logic
+                                // If short, always valid (Blue). If long, check Dict (Red/Blue).
+                                if (clean.length <= 3) {
+                                    return <span key={i} className="text-sky-400 transition-colors duration-200">{part}</span>;
+                                }
+
                                 const isUnknown = unknownSegments.has(clean);
                                 return (
                                     <span key={i} className={isUnknown ? "text-red-400 font-medium transition-colors duration-200" : "text-sky-400 transition-colors duration-200"}>
@@ -232,7 +270,7 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
 
         return <React.Fragment key={index}>{parts}</React.Fragment>;
     });
-  }, [text, committedLength, correctedLength, checkedLength, checkingLength, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments, processingOverlay]);
+  }, [text, committedLength, correctedLength, checkedLength, checkingLength, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments, processingOverlay, isPaused, status]);
 
   return (
     <div 
@@ -304,6 +342,7 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
         onKeyDown={onKeyDown}
         onCopy={onClipboard}
         onCut={onClipboard}
+        onPaste={onPaste} // Attached handler
         onClick={onInteraction}
         placeholder={t.placeholder}
         className="custom-scrollbar absolute inset-0 w-full h-full p-8 pb-32 resize-none focus:outline-none text-lg leading-relaxed font-medium bg-transparent text-transparent caret-white placeholder:text-slate-700 z-20 overflow-y-scroll break-words"

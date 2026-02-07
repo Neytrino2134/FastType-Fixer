@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, forwardRef, useImperativeHandle, useRef } from 'react';
+import React, { useEffect, useState, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
 import { useSmartEditor } from '../hooks/useSmartEditor';
 import { EditorSurface } from './Editor/EditorSurface';
@@ -33,7 +33,8 @@ export interface SmartEditorHandle {
     paste: () => Promise<void>;
     cut: () => Promise<void>; 
     clearAndPaste: () => Promise<void>; 
-    fullWipe: () => void; 
+    fullWipe: () => void;
+    getText: () => string; // Added getText
 }
 
 export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((props, ref) => {
@@ -129,8 +130,27 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
     }
   };
 
+  // Helper: Handle textarea paste event (Ctrl+V) for images
+  const handleTextareaPaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      // Check for files in the paste event
+      if (e.clipboardData && e.clipboardData.files.length > 0) {
+          const file = e.clipboardData.files[0];
+          // If it's an image, intercept standard paste
+          if (file.type.startsWith('image/')) {
+              e.preventDefault(); 
+              if (toolbarRef.current) {
+                  toolbarRef.current.setFile(file);
+                  addNotification(props.language === 'ru' ? "Изображение вставлено" : "Image pasted", 'success');
+              }
+              return;
+          }
+      }
+      // If it's not an image, proceed with default behavior (text paste handled by textarea)
+  }, [props.language, addNotification]);
+
   // Expose methods to parent
   useImperativeHandle(ref, () => ({
+      getText: () => text, // Implementation
       clear: () => {
           setFullText('');
       },
@@ -221,6 +241,30 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
       },
       clearAndPaste: async () => {
           try {
+              // 1. Check for Images First (Modern Web API)
+              try {
+                  const clipboardItems = await navigator.clipboard.read();
+                  for (const item of clipboardItems) {
+                      const imageType = item.types.find(type => type.startsWith('image/'));
+                      if (imageType) {
+                          const blob = await item.getType(imageType);
+                          const file = new File([blob], `pasted_image_${Date.now()}.png`, { type: imageType });
+                          
+                          setFullText(''); // CLEAR EDITOR TEXT
+                          
+                          // Stage the file in the Toolbar
+                          if (toolbarRef.current) {
+                              toolbarRef.current.setFile(file);
+                              addNotification(props.language === 'ru' ? "Изображение вставлено" : "Image pasted", 'success');
+                          }
+                          return; // Stop here
+                      }
+                  }
+              } catch (clipErr) {
+                  // Fallback: If clipboard read fail (permissions, or empty), proceed to text
+              }
+
+              // 2. Text Paste
               const clipText = await safeReadClipboard();
               setFullText(clipText || '');
               setTimeout(() => {
@@ -284,6 +328,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         onScroll={handleScroll}
         onKeyDown={handleKeyDown}
         onClipboard={handleClipboardEvent}
+        onPaste={handleTextareaPaste} // Passed here
         visualizerDataRef={visualizerDataRef}
         onInteraction={props.onInteraction}
         isPaused={!props.settings.enabled}

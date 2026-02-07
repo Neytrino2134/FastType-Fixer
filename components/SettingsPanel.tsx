@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Keyboard, KeyRound, Mic, Brain, Leaf, ShieldAlert, Database, Check, X, Wand2, Activity, Scissors, ChevronDown, ChevronUp, BarChart2, Circle, AudioWaveform, Shield, ChevronLeft, Lock, Bug, TestTube, ArrowDownToLine, MoveVertical, Split, ExternalLink, LogOut, Save } from 'lucide-react';
+import { Keyboard, KeyRound, Mic, Brain, Leaf, ShieldAlert, Database, Check, X, Wand2, Activity, Scissors, ChevronDown, ChevronUp, BarChart2, Circle, AudioWaveform, Shield, ChevronLeft, Lock, Bug, TestTube, ArrowDownToLine, MoveVertical, Split, ExternalLink, LogOut, Save, Volume2 } from 'lucide-react';
 import { CorrectionSettings, Language } from '../types';
 import { getTranslation } from '../utils/i18n';
 import { MicTest } from './MicTest';
@@ -541,7 +541,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
                 {/* Audio Model Switcher */}
                 <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                    <div className="flex gap-2">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">{t.audioModelTitle || "Dictation Model"}</label>
+                    <div className="flex gap-2 mb-4">
                         <button
                             onClick={() => onUpdateSettings({ ...settings, audioModel: 'gemini-2.5-flash' })}
                             className={`flex-1 flex flex-col items-center justify-center p-3 rounded-lg border transition-all touch-manipulation ${
@@ -565,6 +566,29 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             <Brain className="w-5 h-5 md:w-4 md:h-4 mb-1" />
                             <span className="text-xs font-semibold">{t.modelPro}</span>
                         </button>
+                    </div>
+
+                    {/* TTS Voice Selector */}
+                    <div className="pt-4 border-t border-slate-700/50">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block flex items-center gap-2">
+                            <Volume2 className="w-3.5 h-3.5" />
+                            {t.ttsVoiceTitle || "TTS Voice"}
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'].map((voice) => (
+                                <button
+                                    key={voice}
+                                    onClick={() => onUpdateSettings({ ...settings, ttsVoice: voice as any })}
+                                    className={`py-2 px-3 rounded text-xs font-medium border transition-colors ${
+                                        settings.ttsVoice === voice
+                                            ? 'bg-emerald-600/20 border-emerald-500 text-emerald-300'
+                                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                                    }`}
+                                >
+                                    {voice}
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
 

@@ -27,6 +27,7 @@ interface EditorToolbarProps {
   isDevRecording?: boolean;
   showClipboard: boolean;
   onToggleClipboard: () => void;
+  isRecording: boolean; // NEW: Strict hardware state
 }
 
 export interface EditorToolbarHandle {
@@ -54,13 +55,12 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
   onDevRecord,
   isDevRecording = false,
   showClipboard,
-  onToggleClipboard
+  onToggleClipboard,
+  isRecording // Receive directly from hook
 }, ref) => {
   const t = getTranslation(language);
   
   // Explicit State Definitions
-  const isRecording = status === 'recording';
-  const isAnalyzing = status === 'transcribing'; // This is the specific "Wait" state
   const isEnhancing = status === 'enhancing';
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -93,20 +93,10 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
   }
 
   // Helper to determine Main Button Appearance
+  // STRICT LOGIC: If isRecording is true, ALWAYS show STOP. Ignore global status.
   const getMainButtonConfig = () => {
-      // PRIORITY 1: ANALYZING STATE
-      // Must come first to override recording state during the transition period
-      if (isAnalyzing) {
-          return {
-              text: language === 'ru' ? 'Анализ...' : 'Analyzing...',
-              icon: <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin" />,
-              className: 'bg-sky-500/20 text-sky-400 border-sky-500/50 cursor-wait',
-              disabled: true,
-              tooltip: t.statusTranscribing || "Processing Audio..."
-          };
-      } 
-      // PRIORITY 2: RECORDING STATE
-      else if (isRecording && !isDevRecording) {
+      // STATE 1: RECORDING -> Show Stop
+      if (isRecording && !isDevRecording) {
           return {
               text: t.btnStop,
               icon: <Square className="w-5 h-5 md:w-4 md:h-4 fill-current animate-pulse" />,
@@ -115,7 +105,7 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
               tooltip: t.btnStop
           };
       } 
-      // PRIORITY 3: IDLE STATE
+      // STATE 2: IDLE/ANYTHING ELSE -> Show Record (Dictate)
       else {
           return {
               text: t.btnRecord,
@@ -123,7 +113,7 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
               className: isDevRecording 
                 ? 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700' 
                 : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700',
-              disabled: isDevRecording, // Disable standard mic if Dev Mic is active
+              disabled: isDevRecording, 
               tooltip: t.btnRecord
           };
       }
@@ -239,11 +229,11 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
             >
                 <div className="flex items-center gap-2">
                     {mainBtn.icon}
-                    <span className="hidden sm:inline font-semibold">{mainBtn.text}</span>
+                    <span className="hidden md:inline font-semibold">{mainBtn.text}</span>
                 </div>
                 
                 {/* Countdown (Only visible when actively recording) */}
-                {isRecording && !isDevRecording && !isAnalyzing && (
+                {isRecording && !isDevRecording && (
                     <>
                         <div className="mx-2 h-4 w-px bg-red-400/40"></div>
                         <div className="w-4 flex justify-center text-xs font-mono font-bold tabular-nums">
@@ -310,7 +300,7 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
             ) : (
                 <Wand2 className="w-5 h-5 md:w-4 md:h-4 group-hover:rotate-12 transition-transform" />
             )}
-            <span className="hidden sm:inline">{t.btnEnhance}</span>
+            <span className="hidden md:inline">{t.btnEnhance}</span>
             </button>
         </Tooltip>
       </div>

@@ -4,6 +4,7 @@ import { SmartEditor, SmartEditorHandle } from './components/SmartEditor';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ClipboardHistory } from './components/ClipboardHistory';
+import { AudioArchive } from './components/AudioArchive'; // NEW
 import { AppHeader } from './components/AppHeader';
 import { SettingsPanel } from './components/SettingsPanel';
 import { NotificationSystem } from './components/NotificationSystem';
@@ -14,9 +15,12 @@ import { PlannerInterface } from './components/Planner/PlannerInterface';
 import { useAppLogic } from './hooks/useAppLogic';
 import { getTranslation } from './utils/i18n';
 import { Tab } from './types';
+import { speakText } from './services/geminiService';
+import { useNotification } from './contexts/NotificationContext';
 
 export default function App() {
   const { state, actions } = useAppLogic();
+  const { addNotification } = useNotification();
   const t = getTranslation(state.language);
   
   // --- TRANSITION STATES ---
@@ -172,6 +176,35 @@ export default function App() {
       }
   }, [actions]);
 
+  // TTS ACTION
+  const handleHeaderSpeak = useCallback(async () => {
+      const text = editorRef.current?.getText();
+      if (!text || !text.trim()) return;
+      
+      actions.setStatus('speaking');
+      addNotification(state.language === 'ru' ? 'Озвучивание...' : 'Generating Speech...', 'info');
+
+      try {
+          // Speak and get the binary data back
+          const base64Audio = await speakText(text, state.settings.ttsVoice);
+          
+          if (base64Audio) {
+              actions.handleAddToAudioArchive({
+                  id: Date.now().toString(),
+                  text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+                  base64Audio,
+                  voice: state.settings.ttsVoice,
+                  timestamp: Date.now()
+              });
+          }
+      } catch(e) {
+          console.error("Failed to speak", e);
+          addNotification(state.language === 'ru' ? 'Ошибка озвучивания' : 'Speech generation failed', 'error');
+      } finally {
+          actions.setStatus(state.settings.enabled ? 'idle' : 'paused');
+      }
+  }, [state.settings.ttsVoice, state.settings.enabled, actions, addNotification, state.language]);
+
   // New: FULL WIPE HANDLER (Combines App logic + Editor logic)
   const performFullWipe = useCallback(() => {
       // 1. Wipe App Logic State (Lock, Clipboard, Stats, LocalStorage keys)
@@ -280,6 +313,9 @@ export default function App() {
                 onUpdateSettings={actions.setSettings}
                 onSendToChat={handleSendToChat}
                 onSendToTranslator={handleSendToTranslator}
+                onSpeakText={handleHeaderSpeak} // Connect TTS
+                onToggleArchive={actions.toggleAudioArchive} // Connect Archive
+                showArchive={state.showAudioArchive}
               />
 
               {/* Global Notification Layer */}
@@ -322,6 +358,16 @@ export default function App() {
                     onToggleEnabled={() => actions.setSettings(s => ({...s, clipboardEnabled: !s.clipboardEnabled}))}
                     onClose={actions.closeOverlays}
                     onClear={actions.handleClearClipboard}
+                    language={state.language}
+                />
+
+                {/* GLOBAL: Audio Archive Overlay */}
+                <AudioArchive 
+                    items={state.audioArchive}
+                    isOpen={state.showAudioArchive}
+                    onClose={actions.closeOverlays}
+                    onRemove={actions.handleRemoveFromAudioArchive}
+                    onClear={actions.handleClearAudioArchive}
                     language={state.language}
                 />
 

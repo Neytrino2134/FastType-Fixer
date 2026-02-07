@@ -70,6 +70,7 @@ export const UI_UZ_CYRL: UIDictionary = {
     btnEnhance: "Матнни яхшилаш",
     btnUndo: "Бекор қилиш",
     btnRedo: "Қайтариш",
+    btnSpeak: "Матнни ўқиш", // NEW
     
     // Status
     statusTyping: "Ёзилмоқда...",
@@ -181,6 +182,7 @@ export const UI_UZ_CYRL: UIDictionary = {
     audioModelTitle: "Аудио Модел",
     modelFlash: "Gemini 2.5 Flash (Тез)",
     modelPro: "Gemini 2.5 Pro (Ақлли)",
+    ttsVoiceTitle: "Овоз (TTS)", // NEW
     
     // New Buttons
     btnHelp: "Ёрдам",

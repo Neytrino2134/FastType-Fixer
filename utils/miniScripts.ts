@@ -29,7 +29,13 @@ export const runMiniScripts = (text: string): string => {
         return separator + letter.toUpperCase();
     });
     
-    // 4. Double space removal
+    // 4. Auto-Capitalization for the very first word
+    // Matches: Start of text -> optional whitespace -> lowercase letter
+    res = res.replace(/^(\s*)([a-zа-яё])/g, (match, space, letter) => {
+        return space + letter.toUpperCase();
+    });
+    
+    // 5. Double space removal
     // Example: "word  word" -> "word word"
     res = res.replace(/[ \t]{2,}/g, ' ');
 

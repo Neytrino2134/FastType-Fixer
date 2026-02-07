@@ -70,6 +70,7 @@ export const UI_EN: UIDictionary = {
     btnEnhance: "Improve Text",
     btnUndo: "Undo",
     btnRedo: "Redo",
+    btnSpeak: "Speak Text", // NEW
     
     // Status
     statusTyping: "Typing...",
@@ -181,6 +182,7 @@ export const UI_EN: UIDictionary = {
     audioModelTitle: "Audio Model",
     modelFlash: "Gemini 2.5 Flash (Fast)",
     modelPro: "Gemini 2.5 Pro (Smart)",
+    ttsVoiceTitle: "TTS Voice", // NEW
     
     // New Buttons
     btnHelp: "Help",

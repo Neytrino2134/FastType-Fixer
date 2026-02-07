@@ -368,6 +368,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         isDevRecording={isDevRecording}
         showClipboard={props.showClipboard}
         onToggleClipboard={props.onToggleClipboard}
+        isRecording={isRecording} // Pass strict boolean to toolbar
       />
 
       <HistoryPanel 

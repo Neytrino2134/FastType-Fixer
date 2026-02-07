@@ -1,5 +1,5 @@
 
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { Language } from "../types";
 import { getPrompts } from "../utils/i18n";
 import { cleanAudioHallucinations, removeFillers, cleanGeminiResponse } from "../utils/textCleaner";
@@ -14,6 +14,85 @@ export const setGeminiApiKey = (key: string) => {
 if (process.env.API_KEY) {
   setGeminiApiKey(process.env.API_KEY);
 }
+
+// --- AUDIO HELPERS ---
+
+function decode(base64: string) {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function decodeAudioData(
+  data: Uint8Array,
+  ctx: AudioContext,
+  sampleRate: number = 24000,
+  numChannels: number = 1
+): Promise<AudioBuffer> {
+  const dataInt16 = new Int16Array(data.buffer);
+  const frameCount = dataInt16.length / numChannels;
+  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
+
+  for (let channel = 0; channel < numChannels; channel++) {
+    const channelData = buffer.getChannelData(channel);
+    for (let i = 0; i < frameCount; i++) {
+      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
+    }
+  }
+  return buffer;
+}
+
+// --- SERVICES ---
+
+/**
+ * Generates speech, plays it immediately, and returns the base64 string for archiving.
+ */
+export const speakText = async (text: string, voiceName: string): Promise<string | null> => {
+    if (!ai) throw new Error("API Key not set");
+    if (!text || !text.trim()) return null;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash-preview-tts",
+            contents: [{ parts: [{ text: text }] }],
+            config: {
+                responseModalities: [Modality.AUDIO],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: voiceName || 'Puck' },
+                    },
+                },
+            },
+        });
+
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        
+        if (base64Audio) {
+            const outputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+            const outputNode = outputAudioContext.createGain();
+            
+            const audioBytes = decode(base64Audio);
+            const audioBuffer = await decodeAudioData(audioBytes, outputAudioContext, 24000, 1);
+            
+            const source = outputAudioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(outputNode);
+            outputNode.connect(outputAudioContext.destination);
+            source.start();
+
+            // Return the base64 data for archiving
+            return base64Audio;
+        }
+        return null;
+    } catch (error) {
+        console.error("TTS Error:", error);
+        throw error;
+    }
+};
 
 // STAGE 1: Fix Typos Only (Grey -> Orange)
 export const fixTyposOnly = async (text: string, language: Language): Promise<string> => {

@@ -9,6 +9,7 @@ export interface CorrectionSettings {
   clipboardEnabled: boolean;
   silenceThreshold: number; 
   audioModel: 'gemini-2.5-flash' | 'gemini-2.5-pro';
+  ttsVoice: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr'; // NEW
   economyMode: boolean; 
   dictionaryCheck: boolean;
   // Visualizer Settings
@@ -25,6 +26,14 @@ export interface CorrectionSettings {
 export interface ClipboardItem {
   id: string;
   text: string;
+  timestamp: number;
+}
+
+export interface AudioArchiveItem {
+  id: string;
+  text: string;
+  base64Audio: string;
+  voice: string;
   timestamp: number;
 }
 
@@ -50,7 +59,7 @@ export interface EditorState {
   correctionCount: number;
 }
 
-export type ProcessingStatus = 'idle' | 'typing' | 'dict_check' | 'ai_fixing' | 'ai_finalizing' | 'done' | 'recording' | 'transcribing' | 'paused' | 'error' | 'enhancing' | 'script_fix';
+export type ProcessingStatus = 'idle' | 'typing' | 'dict_check' | 'ai_fixing' | 'ai_finalizing' | 'done' | 'recording' | 'transcribing' | 'paused' | 'error' | 'enhancing' | 'script_fix' | 'speaking';
 
 export type VisualizerStatus = 'idle' | 'listening' | 'editing' | 'analyzing_listening' | 'analyzing' | 'done';
 

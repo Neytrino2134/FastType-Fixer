@@ -70,6 +70,7 @@ export const UI_RU: UIDictionary = {
     btnEnhance: "Улучшить текст",
     btnUndo: "Отменить",
     btnRedo: "Вернуть",
+    btnSpeak: "Озвучить текст", // NEW
     
     // Status
     statusTyping: "Печатаю...",
@@ -181,6 +182,7 @@ export const UI_RU: UIDictionary = {
     audioModelTitle: "Модель звука",
     modelFlash: "Gemini 2.5 Flash (Быстро)",
     modelPro: "Gemini 2.5 Pro (Умно)",
+    ttsVoiceTitle: "Голос Озвучки (TTS)", // NEW
     
     // New Buttons
     btnHelp: "Справка",

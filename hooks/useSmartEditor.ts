@@ -120,6 +120,8 @@ export const useSmartEditor = ({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
+  
+  // IMPORTANT: Counts how many chunks are currently being processed by Gemini
   const pendingTranscriptionsCount = useRef(0);
 
   // --- CORE TEXT UPDATE LOGIC ---
@@ -163,7 +165,8 @@ export const useSmartEditor = ({
         }, MANUAL_SAVE_DEBOUNCE_MS);
     }
     
-    if (statusRef.current !== 'recording' && statusRef.current !== 'ai_fixing' && statusRef.current !== 'ai_finalizing' && statusRef.current !== 'transcribing') {
+    // Only set "typing" if we aren't in a heavier AI state
+    if (statusRef.current !== 'recording' && statusRef.current !== 'transcribing' && statusRef.current !== 'ai_fixing' && statusRef.current !== 'ai_finalizing') {
         onStatusChange('typing');
     }
 
@@ -192,19 +195,21 @@ export const useSmartEditor = ({
         return;
     }
 
-    const selectionStart = textarea.selectionStart;
+    const currentPos = textarea.selectionStart;
     const currentText = textRef.current;
-    const prefix = currentText.substring(0, selectionStart);
+    
+    const prefix = currentText.substring(0, currentPos);
     const processedPrefix = runMiniScripts(prefix);
     const newCursorPos = processedPrefix.length;
 
     handleTextUpdate(newText);
 
-    requestAnimationFrame(() => {
+    setTimeout(() => {
         if (textareaRef.current) {
+            textareaRef.current.focus();
             textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
         }
-    });
+    }, 0);
   }, [handleTextUpdate]);
 
   const { notifyActivity, reset: resetProcessor, processingOverlay } = useTextProcessor({
@@ -222,9 +227,9 @@ export const useSmartEditor = ({
       setCheckedLength,
       setCheckingLength, 
       finalizedSentences, 
-      addFinalizedSentence,
+      addFinalizedSentence, 
       addAiFixedSegment,
-      unknownSegments, // Pass Set for read access
+      unknownSegments,
       addUnknownSegments, 
       saveCheckpoint,
       saveCheckpoints,
@@ -240,8 +245,7 @@ export const useSmartEditor = ({
           const now = Date.now();
           const idleTime = now - lastInteractionTimeRef.current;
           
-          if (idleTime > AUTO_REFRESH_IDLE_MS && statusRef.current === 'idle' && !pendingTranscriptionsCount.current) {
-              // Soft reset: Clear transient flags
+          if (idleTime > AUTO_REFRESH_IDLE_MS && statusRef.current === 'idle' && pendingTranscriptionsCount.current === 0) {
               resetProcessor(); 
               setCheckingLength(0); 
               
@@ -291,9 +295,8 @@ export const useSmartEditor = ({
 
   useEffect(() => {
     if (resetSignal > 0) {
-      // Force Reset triggered by UI button
-      stopRecording(); // Hard stop audio
-      resetProcessor(); // Hard reset processor
+      stopRecording(); 
+      resetProcessor(); 
       onStatusChange('idle');
       setVisualizerStatus('idle');
       setIsAnalyzing(false);
@@ -302,28 +305,6 @@ export const useSmartEditor = ({
       lastInteractionTimeRef.current = Date.now();
     }
   }, [resetSignal, onStatusChange, resetProcessor, setCheckingLength, stopRecording]);
-
-  useEffect(() => {
-    if (!isRecording && status === 'recording') {
-        if (isDevRecording) {
-            setIsDevRecording(false);
-            onStatusChange(settings.enabled ? 'idle' : 'paused');
-            setVisualizerStatus('idle');
-            return;
-        }
-
-        if (pendingTranscriptionsCount.current > 0) {
-            onStatusChange('transcribing');
-        } else {
-            // Only force idle if we aren't analyzing. 
-            // If analyzing, the analyzing logic will eventually set it to idle.
-            if (!isAnalyzing) {
-                onStatusChange(settings.enabled ? 'idle' : 'paused');
-            }
-        }
-        setVisualizerStatus('idle');
-    }
-  }, [isRecording, status, onStatusChange, isDevRecording, settings.enabled, isAnalyzing]);
 
   const handleEnhance = async () => {
       lastInteractionTimeRef.current = Date.now();
@@ -392,9 +373,7 @@ export const useSmartEditor = ({
 
       pendingTranscriptionsCount.current += 1;
       setIsAnalyzing(true);
-      if (statusRef.current !== 'recording') {
-          onStatusChange('transcribing');
-      }
+      onStatusChange('transcribing');
 
       reader.onload = async (e) => {
           if (e.target?.result) {
@@ -440,11 +419,10 @@ export const useSmartEditor = ({
                   addNotification(language === 'ru' ? "Ошибка обработки файла" : "File processing error", 'error');
               } finally {
                   pendingTranscriptionsCount.current -= 1;
-                  if (pendingTranscriptionsCount.current === 0) {
+                  if (pendingTranscriptionsCount.current <= 0) {
+                      pendingTranscriptionsCount.current = 0;
                       setIsAnalyzing(false);
-                      if (statusRef.current === 'transcribing') {
-                          onStatusChange(settings.enabled ? 'idle' : 'paused');
-                      }
+                      onStatusChange(settings.enabled ? 'idle' : 'paused');
                   }
               }
           }
@@ -453,20 +431,17 @@ export const useSmartEditor = ({
   }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, addNotification]);
 
   const handleAudioChunk = useCallback(async (base64: string, mimeType: string) => {
-    // FIX: Always increment pending count to indicate active work
+    // 1. Increment Pending Count
     pendingTranscriptionsCount.current += 1;
-    setIsAnalyzing(true);
     
-    // Ensure UI shows processing state if it wasn't already (e.g. Stop was clicked)
-    if (statusRef.current !== 'recording') {
-        onStatusChange('transcribing');
-    }
+    // 2. Set Background Analysis Flag
+    setIsAnalyzing(true);
     
     try {
         let transcription = await transcribeAudio(base64, mimeType, language, settingsRef.current.audioModel);
         
         if (transcription && transcription.trim()) {
-            lastInteractionTimeRef.current = Date.now(); // Valid input, reset idle timer
+            lastInteractionTimeRef.current = Date.now(); 
             const currentText = textRef.current;
             const separator = currentText.trim().length > 0 && !currentText.endsWith(' ') ? ' ' : '';
             const newTextValue = currentText + separator + transcription;
@@ -497,18 +472,24 @@ export const useSmartEditor = ({
     } catch (e) {
         console.error("Chunk transcription failed", e);
     } finally {
+        // 3. Decrement Pending Count
         pendingTranscriptionsCount.current -= 1;
-        // Release analyzing state only when ALL chunks are done
+        
+        // 4. Update UI flag only when all chunks are done
         if (pendingTranscriptionsCount.current <= 0) {
-            pendingTranscriptionsCount.current = 0; // Safety clamp
+            pendingTranscriptionsCount.current = 0; 
             setIsAnalyzing(false);
-            // Revert to idle only if we are not currently recording another chunk
+            
+            // Only reset status if we are NOT actively recording.
+            // This prevents "flickering" if a chunk finishes while we are still speaking.
             if (!isRecordingRef.current) {
-                 onStatusChange(settings.enabled ? 'idle' : 'paused');
+                 // Even if we don't reset here, the EditorToolbar is now decoupled, so the button won't flicker.
+                 // But we reset status for other UI elements (like the 'Analyze' badge).
+                 // onStatusChange(settings.enabled ? 'idle' : 'paused'); 
             }
         }
     }
-  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, settings.enabled]);
+  }, [language, onStatsUpdate, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, settings.enabled]);
 
   // We need a ref to access isRecording inside callbacks without dependency loops
   const isRecordingRef = useRef(isRecording);
@@ -524,32 +505,22 @@ export const useSmartEditor = ({
             await stopRecording();
             setIsDevRecording(false);
             onStatusChange(settings.enabled ? 'idle' : 'paused');
+            setVisualizerStatus('idle');
             return;
         }
 
         if (isRecordingRef.current) {
-            // STOPPING
-            await stopRecording();
+            // --- STOPPING ---
+            // Set status to Idle for badges, but button is controlled by isRecording
+            onStatusChange(settings.enabled ? 'idle' : 'paused'); 
             setVisualizerStatus('idle');
-            
-            // FORCE ANALYZING STATE IMMEDIATELY to lock UI
-            // This gives immediate visual feedback while the final chunk processes
-            onStatusChange('transcribing');
-            setIsAnalyzing(true);
-            
-            // Safety timeout: If no chunks arrive within 2 seconds (e.g. silence), reset to idle
-            setTimeout(() => {
-                if (pendingTranscriptionsCount.current === 0) {
-                    setIsAnalyzing(false);
-                    if (statusRef.current === 'transcribing') {
-                        onStatusChange(settings.enabled ? 'idle' : 'paused');
-                    }
-                }
-            }, 2000);
+
+            // Stop the recorder (this triggers final chunk via callback)
+            await stopRecording();
 
         } else {
-            // STARTING
-            // Reset state
+            // --- STARTING ---
+            
             resetProcessor();
             pendingTranscriptionsCount.current = 0;
 

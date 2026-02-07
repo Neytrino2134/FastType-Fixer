@@ -1,6 +1,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
-import { AppState, CorrectionSettings, Language, ProcessingStatus, ClipboardItem, Tab } from '../types';
+import { AppState, CorrectionSettings, Language, ProcessingStatus, ClipboardItem, Tab, AudioArchiveItem } from '../types';
 import { setGeminiApiKey } from '../services/geminiService';
 import { loadDictionaries } from '../data/dictionary';
 
@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: CorrectionSettings = {
   clipboardEnabled: true,
   silenceThreshold: 15,
   audioModel: 'gemini-2.5-flash',
+  ttsVoice: 'Puck', // Default Voice
   economyMode: true,
   dictionaryCheck: true, 
   visualizerLowCut: 0,
@@ -69,6 +70,7 @@ export const useAppLogic = () => {
   const [showClipboard, setShowClipboard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showAudioArchive, setShowAudioArchive] = useState(false); // NEW
   
   // Persistent Clipboard History
   const [clipboardHistory, setClipboardHistory] = useState<ClipboardItem[]>(() => {
@@ -79,6 +81,10 @@ export const useAppLogic = () => {
       return [];
     }
   });
+
+  // Audio Archive State (In-Memory for now, or use IndexedDB in future for persistence)
+  // We don't persist heavy audio blobs to localStorage to avoid quota errors.
+  const [audioArchive, setAudioArchive] = useState<AudioArchiveItem[]>([]);
 
   // Save Clipboard to LocalStorage whenever it changes
   useEffect(() => {
@@ -149,6 +155,7 @@ export const useAppLogic = () => {
     setShowClipboard(false);
     setShowHelp(false);
     setShowHistory(false);
+    setShowAudioArchive(false);
     setCurrentTab('editor');
   }, [lockCode]);
 
@@ -179,6 +186,7 @@ export const useAppLogic = () => {
     localStorage.removeItem('fasttype_editor_state_v2');
     setSettings(DEFAULT_SETTINGS);
     localStorage.removeItem(STORAGE_KEY_SETTINGS);
+    setAudioArchive([]); // Wipe archive
     return true;
   }, []);
 
@@ -216,6 +224,7 @@ export const useAppLogic = () => {
     setShowClipboard(false);
     setShowHelp(false);
     setShowHistory(false);
+    setShowAudioArchive(false);
   }, []);
 
   const toggleClipboard = useCallback(() => {
@@ -223,6 +232,7 @@ export const useAppLogic = () => {
     setShowSettings(false);
     setShowHelp(false);
     setShowHistory(false);
+    setShowAudioArchive(false);
   }, []);
 
   const toggleHistory = useCallback(() => {
@@ -230,6 +240,7 @@ export const useAppLogic = () => {
     setShowClipboard(false);
     setShowSettings(false);
     setShowHelp(false);
+    setShowAudioArchive(false);
   }, []);
 
   const toggleHelp = useCallback(() => {
@@ -237,6 +248,15 @@ export const useAppLogic = () => {
     setShowSettings(false);
     setShowClipboard(false);
     setShowHistory(false);
+    setShowAudioArchive(false);
+  }, []);
+
+  const toggleAudioArchive = useCallback(() => {
+    setShowAudioArchive(prev => !prev);
+    setShowSettings(false);
+    setShowClipboard(false);
+    setShowHistory(false);
+    setShowHelp(false);
   }, []);
   
   const closeOverlays = useCallback(() => {
@@ -244,6 +264,7 @@ export const useAppLogic = () => {
     setShowSettings(false);
     setShowHelp(false);
     setShowHistory(false);
+    setShowAudioArchive(false);
   }, []);
 
   const handleClipboardAction = useCallback((text: string) => {
@@ -260,6 +281,19 @@ export const useAppLogic = () => {
 
   const handleClearClipboard = useCallback((text?: string) => {
     setClipboardHistory([]);
+  }, []);
+
+  // Audio Archive Actions
+  const handleAddToAudioArchive = useCallback((item: AudioArchiveItem) => {
+      setAudioArchive(prev => [item, ...prev].slice(0, 20)); // Keep last 20 audio items
+  }, []);
+
+  const handleRemoveFromAudioArchive = useCallback((id: string) => {
+      setAudioArchive(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+  const handleClearAudioArchive = useCallback(() => {
+      setAudioArchive([]);
   }, []);
 
   const handleResetProcessor = useCallback(() => {
@@ -391,7 +425,9 @@ export const useAppLogic = () => {
       showClipboard,
       showHistory,
       showHelp,
+      showAudioArchive,
       clipboardHistory,
+      audioArchive,
       resetSignal,
       isLocked,
       hasLock: !!lockCode,
@@ -414,9 +450,13 @@ export const useAppLogic = () => {
       toggleClipboard,
       toggleHistory,
       toggleHelp,
+      toggleAudioArchive,
       closeOverlays,
       handleClipboardAction,
       handleClearClipboard,
+      handleAddToAudioArchive,
+      handleRemoveFromAudioArchive,
+      handleClearAudioArchive,
       handleWindowControl,
       handleResetProcessor,
       handleSetLock,

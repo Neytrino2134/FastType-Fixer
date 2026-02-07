@@ -70,6 +70,7 @@ export const UI_UZ_LATN: UIDictionary = {
     btnEnhance: "Matnni yaxshilash",
     btnUndo: "Bekor qilish",
     btnRedo: "Qaytarish",
+    btnSpeak: "Matnni o'qish", // NEW
     
     // Status
     statusTyping: "Yozilmoqda...",
@@ -181,6 +182,7 @@ export const UI_UZ_LATN: UIDictionary = {
     audioModelTitle: "Audio Model",
     modelFlash: "Gemini 2.5 Flash (Tez)",
     modelPro: "Gemini 2.5 Pro (Aqlli)",
+    ttsVoiceTitle: "Ovoz (TTS)", // NEW
     
     // New Buttons
     btnHelp: "Yordam",

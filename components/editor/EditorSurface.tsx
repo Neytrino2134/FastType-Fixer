@@ -137,15 +137,21 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
         const isActiveEditBlock = block.start < safeCommitted && block.end > safeCommitted;
 
         // PRIORITY: If currently processed by AI, pulse the text brightness
-        // This overrides standard coloring logic for the duration of the API call
-        if (activeOverlay && block.start >= activeOverlay.start && block.end <= activeOverlay.end) {
-             if (activeOverlay.type === 'fixing') {
-                 // Pulsing Purple (Fixing)
-                 return <span key={index} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
-             }
-             if (activeOverlay.type === 'finalizing') {
-                 // Pulsing Green (Finalizing)
-                 return <span key={index} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+        // This overrides standard coloring logic for the duration of the API call.
+        // Uses INTERSECTION logic: If the block overlaps with the overlay, animate it.
+        if (activeOverlay) {
+             const overlapStart = Math.max(block.start, activeOverlay.start);
+             const overlapEnd = Math.min(block.end, activeOverlay.end);
+             
+             if (overlapEnd > overlapStart) {
+                 if (activeOverlay.type === 'fixing') {
+                     // Pulsing Purple (Fixing)
+                     return <span key={index} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+                 }
+                 if (activeOverlay.type === 'finalizing') {
+                     // Pulsing Green (Finalizing)
+                     return <span key={index} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+                 }
              }
         }
 
@@ -164,12 +170,17 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
             const subEnd = subStart + subText.length;
             
             // Re-check processing overlay for partial chunks (rare but possible)
-            if (activeOverlay && subStart >= activeOverlay.start && subEnd <= activeOverlay.end) {
-                 if (activeOverlay.type === 'fixing') {
-                     return <span key={subStart} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
-                 }
-                 if (activeOverlay.type === 'finalizing') {
-                     return <span key={subStart} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+            if (activeOverlay) {
+                 const overlapStart = Math.max(subStart, activeOverlay.start);
+                 const overlapEnd = Math.min(subEnd, activeOverlay.end);
+                 
+                 if (overlapEnd > overlapStart) {
+                     if (activeOverlay.type === 'fixing') {
+                         return <span key={subStart} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+                     }
+                     if (activeOverlay.type === 'finalizing') {
+                         return <span key={subStart} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+                     }
                  }
             }
 

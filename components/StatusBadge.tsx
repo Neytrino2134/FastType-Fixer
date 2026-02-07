@@ -1,7 +1,6 @@
 
-
 import React from 'react';
-import { Loader2, Zap, Brain, CheckCircle2, PencilLine, Sparkles, Mic, Waves, PauseCircle, BookOpen, AlertTriangle, ShieldCheck, Wand2 } from 'lucide-react';
+import { Loader2, Zap, Brain, CheckCircle2, PencilLine, Sparkles, Mic, Waves, PauseCircle, BookOpen, AlertTriangle, ShieldCheck, Wand2, Volume2 } from 'lucide-react';
 import { ProcessingStatus, Language } from '../types';
 import { getTranslation } from '../utils/i18n';
 
@@ -24,7 +23,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
     'done', 
     'error',
     'script_fix',
-    'dict_check' // Added to full badge for better visibility
+    'dict_check',
+    'speaking' // Added
   ].includes(status);
 
   const getStatusConfig = () => {
@@ -64,6 +64,12 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
             icon: <Sparkles className="w-4 h-4 text-purple-400 animate-spin" />,
             text: t.statusEnhancing || "Enhancing...",
             color: 'bg-purple-950/30 text-purple-200 border-purple-900/50'
+        };
+      case 'speaking':
+        return {
+            icon: <Volume2 className="w-4 h-4 text-purple-400 animate-pulse" />,
+            text: language === 'ru' ? "Озвучивание..." : "Generating...",
+            color: 'bg-purple-950/40 text-purple-300 border-purple-800/50'
         };
       case 'recording':
         return {

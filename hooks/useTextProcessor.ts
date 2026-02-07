@@ -153,26 +153,18 @@ export const useTextProcessor = ({
         // ---------------------------------------------------------
         if (isAiEnabled) {
             const unfinalizedText = fullText.slice(committedLen, absoluteLimit);
-            // Check for ANY sentence terminator.
+            // Check for ANY sentence terminator to identify bulk content
             const matches = unfinalizedText.match(/[.!?](\s|$)/g);
             
-            // >= 1 match triggers bulk logic for pasted/long segments
-            if (matches && matches.length >= 1) {
-                const blocks = splitIntoBlocks(unfinalizedText);
-                let bulkEndIndex = 0;
-                let hasValidContent = false;
-
-                for (const block of blocks) {
-                    if (/[.!?](\s|$)/.test(block.text)) {
-                        bulkEndIndex = block.end;
-                        hasValidContent = true;
-                    }
-                }
-
+            // >= 1 match triggers bulk logic for pasted/long segments.
+            // We also trigger if the segment is long enough (> 30 chars) even without punctuation, 
+            // to catch long unpunctuated dictations.
+            if ((matches && matches.length >= 1) || unfinalizedText.length > 50) {
                 // Only run bulk if flags are active
-                if (hasValidContent && bulkEndIndex > 0 && settings.fixTypos && settings.fixPunctuation) {
-                     const bulkSegment = unfinalizedText.slice(0, bulkEndIndex);
-                     await runBulkFinalization(bulkSegment, committedLen);
+                if (settings.fixTypos && settings.fixPunctuation) {
+                     // Update: Process the WHOLE unfinalized segment.
+                     // The AI is smart enough to punctuate the tail if it's a dangling sentence.
+                     await runBulkFinalization(unfinalizedText, committedLen);
                      return;
                 }
             }
@@ -289,7 +281,8 @@ export const useTextProcessor = ({
         }
 
         // Idle state handling
-        if (statusRef.current !== 'done' && statusRef.current !== 'error') {
+        // FIX: Do not override 'speaking' status to 'idle'.
+        if (statusRef.current !== 'done' && statusRef.current !== 'error' && statusRef.current !== 'speaking') {
             if (isAiEnabled) {
                 if (statusRef.current !== 'idle') {
                     onStatusChange('idle');
@@ -375,10 +368,11 @@ export const useTextProcessor = ({
             finalChunk = ensureProperSpacing(finalChunk);
             finalChunk = formatPunctuationOnTheFly(finalChunk);
             
+            // Auto-append space if next char in fullText is not space/punct, to avoid merging words
             if (/[.!?]$/.test(finalChunk) && !/\s$/.test(finalChunk)) {
                  const fullText = textRef.current;
                  const nextChar = fullText[startOffset + textChunk.length];
-                 if (nextChar && nextChar !== ' ') {
+                 if (nextChar && nextChar !== ' ' && nextChar !== '.') {
                      finalChunk += ' ';
                  }
             }
@@ -401,7 +395,8 @@ export const useTextProcessor = ({
                 
                 const blocks = splitIntoBlocks(finalChunk);
                 blocks.forEach(b => {
-                    if (!b.isSeparator) addFinalizedSentence(b.text);
+                    // Treat all parts as finalized in bulk mode
+                    addFinalizedSentence(b.text);
                 });
                 
                 addAiFixedSegment(normalizeBlock(finalChunk));
@@ -434,7 +429,7 @@ export const useTextProcessor = ({
                     
                     const blocks = splitIntoBlocks(textChunk);
                     blocks.forEach(b => {
-                        if (!b.isSeparator) addFinalizedSentence(b.text);
+                        addFinalizedSentence(b.text);
                     });
                 }
                 onStatusChange('idle');

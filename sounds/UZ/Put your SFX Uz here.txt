@@ -1,0 +1,14 @@
+
+welcome_step_1_uz.wav
+welcome_step_2_uz.wav
+welcome_step_2_uz_2.wav
+welcome_step_3_uz.wav
+welcome_step_4_uz.wav
+
+guide_step_0_uz.wav
+guide_step_1_uz.wav
+guide_step_2_uz.wav
+guide_step_3_uz.wav
+guide_step_4_uz.wav
+guide_step_5_uz.wav
+guide_step_6_uz.wav

@@ -92,29 +92,55 @@ export const ApiKeyGuide: React.FC<ApiKeyGuideProps> = ({ language, onDone, isAc
             return;
         }
 
-        const soundPath = `./sounds/guide_step_${stepNum}_${language}.wav`;
-        const audio = new Audio(soundPath);
-        audio.volume = 0.6; // SET DEFAULT VOLUME TO 60%
-        audioRef.current = audio;
+        // Determine folder and suffix based on language
+        let langFolder = 'RU';
+        let langSuffix = 'ru';
+        
+        if (language === 'en') {
+            langFolder = 'EN';
+            langSuffix = 'en';
+        } else if (language === 'uz-latn' || language === 'uz-cyrl') {
+            langFolder = 'UZ';
+            langSuffix = 'uz';
+        }
 
-        // 1. Success Path: Audio ends naturally
-        audio.onended = next;
+        const soundPathBase = `./sounds/${langFolder}/guide_step_${stepNum}_${langSuffix}`;
+        
+        // Helper to attempt playback with fallback
+        const playAudioFile = (ext: 'mp3' | 'wav') => {
+            if (!isRunningRef.current) return;
 
-        // 2. Error Path: File missing or format error -> Fallback timer
-        audio.onerror = () => {
-            console.warn(`Audio missing for step ${stepNum}, using fallback timer.`);
-            transitionTimeout = setTimeout(next, 4000); 
+            const audio = new Audio(`${soundPathBase}.${ext}`);
+            audio.volume = 0.6; // SET DEFAULT VOLUME TO 60%
+            audioRef.current = audio;
+
+            // 1. Success Path: Audio ends naturally
+            audio.onended = next;
+
+            // 2. Error Path: File missing or format error -> Try Fallback or Timer
+            audio.onerror = () => {
+                if (ext === 'mp3') {
+                    // console.log(`MP3 missing for step ${stepNum}, trying WAV...`);
+                    playAudioFile('wav');
+                } else {
+                    console.warn(`Audio missing for step ${stepNum} (both formats), using timer.`);
+                    transitionTimeout = setTimeout(next, 4000);
+                }
+            };
+
+            // Play
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => {
+                    console.log("Guide audio autoplay blocked or failed:", e);
+                    // If play fails (e.g. user didn't interact yet), fallback timer
+                    transitionTimeout = setTimeout(next, 4000);
+                });
+            }
         };
 
-        // Play
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-            playPromise.catch(e => {
-                console.log("Guide audio autoplay blocked or failed:", e);
-                // If play fails (e.g. user didn't interact yet), fallback timer
-                transitionTimeout = setTimeout(next, 4000);
-            });
-        }
+        // Start with MP3
+        playAudioFile('mp3');
     };
 
     // Start the loop

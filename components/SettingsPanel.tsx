@@ -61,6 +61,17 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       }
   }, [pinFlow, isVisible]);
 
+  // Hybrid Toggle Helper
+  const toggleFeature = (key: keyof CorrectionSettings) => {
+      const nextValue = !settings[key];
+      const updates: any = { [key]: nextValue };
+      // Force Global Enabled if turning a specific feature ON
+      if (nextValue === true) {
+          updates.enabled = true;
+      }
+      onUpdateSettings({ ...settings, ...updates });
+  };
+
   // Handlers for PIN Logic
   const handlePinSubmit = () => {
       setPinError('');
@@ -245,7 +256,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             </p>
                         </div>
                         <button 
-                            onClick={() => onUpdateSettings({ ...settings, miniScripts: !settings.miniScripts })}
+                            onClick={() => toggleFeature('miniScripts')}
                             className={`w-12 h-7 md:w-11 md:h-6 flex items-center rounded-full transition-colors duration-200 shrink-0 touch-manipulation ${settings.miniScripts ? 'bg-sky-600' : 'bg-slate-700'}`}
                         >
                             <span className={`w-5 h-5 md:w-4 md:h-4 bg-white rounded-full shadow-md transform transition-transform duration-200 ${settings.miniScripts ? 'translate-x-6 md:translate-x-6' : 'translate-x-1'}`} />

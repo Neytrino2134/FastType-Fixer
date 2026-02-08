@@ -1,4 +1,6 @@
 
+
+
 import React, { useEffect, useState, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
 import { useSmartEditor } from '../hooks/useSmartEditor';
@@ -7,6 +9,7 @@ import { EditorToolbar, EditorToolbarHandle } from './Editor/EditorToolbar';
 import { HistoryPanel } from './HistoryPanel';
 import { useNotification } from '../contexts/NotificationContext';
 import { getTranslation } from '../utils/i18n';
+import { switchKeyboardLayout } from '../utils/textCleaner';
 
 interface SmartEditorProps {
   settings: CorrectionSettings;
@@ -34,7 +37,8 @@ export interface SmartEditorHandle {
     cut: () => Promise<void>; 
     clearAndPaste: () => Promise<void>; 
     fullWipe: () => void;
-    getText: () => string; // Added getText
+    getText: () => string;
+    switchLayout: () => void; // New method
 }
 
 export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((props, ref) => {
@@ -150,7 +154,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
 
   // Expose methods to parent
   useImperativeHandle(ref, () => ({
-      getText: () => text, // Implementation
+      getText: () => text,
       clear: () => {
           setFullText('');
       },
@@ -194,7 +198,6 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
                   }
               } catch (clipErr) {
                   // Fallback: If clipboard read fail (permissions, or empty), proceed to text
-                  // console.debug("Clipboard image check failed or ignored", clipErr);
               }
 
               // 2. Text Paste Logic
@@ -210,20 +213,16 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
                   let newText = "";
                   let newCursorPos = 0;
 
-                  // Logic: If text exists and cursor is at strict 0 (default state/start),
-                  // AND no range is selected, we assume "Append Mode" as requested.
                   if (currentLen > 0 && start === 0 && end === 0) {
                       newText = text + clipText;
                       newCursorPos = newText.length;
                   } else {
-                      // Insert at cursor or replace selection
                       newText = text.substring(0, start) + clipText + text.substring(end);
                       newCursorPos = start + clipText.length;
                   }
 
                   setFullText(newText);
                   
-                  // Move cursor after pasted text (needs timeout for state update)
                   setTimeout(() => {
                       if (textareaRef.current) {
                           textareaRef.current.focus();
@@ -231,17 +230,16 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
                       }
                   }, 10);
               } else {
-                  // Fallback append
                   setFullText(text + clipText);
               }
           } catch (e) {
               console.error("Paste failed", e);
-              addNotification(props.language === 'ru' ? "Ошибка вставки (права доступа?)" : "Paste failed (permissions?)", 'error');
+              addNotification(props.language === 'ru' ? "Ошибка вставки" : "Paste failed", 'error');
           }
       },
       clearAndPaste: async () => {
           try {
-              // 1. Check for Images First (Modern Web API)
+              // 1. Check for Images
               try {
                   const clipboardItems = await navigator.clipboard.read();
                   for (const item of clipboardItems) {
@@ -252,17 +250,14 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
                           
                           setFullText(''); // CLEAR EDITOR TEXT
                           
-                          // Stage the file in the Toolbar
                           if (toolbarRef.current) {
                               toolbarRef.current.setFile(file);
                               addNotification(props.language === 'ru' ? "Изображение вставлено" : "Image pasted", 'success');
                           }
-                          return; // Stop here
+                          return;
                       }
                   }
-              } catch (clipErr) {
-                  // Fallback: If clipboard read fail (permissions, or empty), proceed to text
-              }
+              } catch (clipErr) { }
 
               // 2. Text Paste
               const clipText = await safeReadClipboard();
@@ -281,12 +276,48 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
       fullWipe: () => {
           setFullText('');
           clearHistory();
+      },
+      switchLayout: () => {
+          const ta = textareaRef.current;
+          if (!ta || !text) return;
+
+          const start = ta.selectionStart;
+          const end = ta.selectionEnd;
+          
+          let newText = "";
+          let newCursorPos = start;
+          let convertedSegment = "";
+
+          // If selection exists, convert selection. If not, convert ALL text.
+          if (start !== end) {
+              const selectedText = text.substring(start, end);
+              convertedSegment = switchKeyboardLayout(selectedText);
+              newText = text.substring(0, start) + convertedSegment + text.substring(end);
+              newCursorPos = start + convertedSegment.length;
+          } else {
+              convertedSegment = switchKeyboardLayout(text);
+              newText = convertedSegment;
+              newCursorPos = text.length;
+          }
+
+          setFullText(newText);
+          addNotification(props.language === 'ru' ? "Раскладка изменена" : "Layout switched", 'success');
+
+          setTimeout(() => {
+              if (textareaRef.current) {
+                  textareaRef.current.focus();
+                  if (start !== end) {
+                      textareaRef.current.setSelectionRange(start, newCursorPos);
+                  } else {
+                      textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+                  }
+              }
+          }, 10);
       }
   }));
 
   // Monitor settings.enabled to trigger resume animation
   useEffect(() => {
-    // Prevent animation on initial mount (app start)
     if (isFirstRender.current) {
         isFirstRender.current = false;
         return;
@@ -328,7 +359,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         onScroll={handleScroll}
         onKeyDown={handleKeyDown}
         onClipboard={handleClipboardEvent}
-        onPaste={handleTextareaPaste} // Passed here
+        onPaste={handleTextareaPaste}
         visualizerDataRef={visualizerDataRef}
         onInteraction={props.onInteraction}
         isPaused={!props.settings.enabled}
@@ -342,7 +373,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         visualizerGravity={props.settings.visualizerGravity}
         visualizerMirror={props.settings.visualizerMirror}
         onDropFile={handleMediaFile} 
-        processingOverlay={processingOverlay} // Pass to EditorSurface
+        processingOverlay={processingOverlay} 
       />
 
       <EditorToolbar
@@ -368,7 +399,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         isDevRecording={isDevRecording}
         showClipboard={props.showClipboard}
         onToggleClipboard={props.onToggleClipboard}
-        isRecording={isRecording} // Pass strict boolean to toolbar
+        isRecording={isRecording} 
       />
 
       <HistoryPanel 

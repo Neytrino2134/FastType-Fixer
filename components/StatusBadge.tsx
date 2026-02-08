@@ -37,7 +37,7 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, language }) =>
         };
       case 'dict_check':
         return {
-          icon: <BookOpen className="w-4 h-4 text-yellow-400 animate-bounce" />, // Yellow
+          icon: <BookOpen className="w-4 h-4 text-yellow-400 animate-pulse" />, // Yellow
           text: t.statusDictCheck || "Dict Check",
           color: 'bg-yellow-950/30 text-yellow-200 border-yellow-900/50' // Yellow Badge
         };

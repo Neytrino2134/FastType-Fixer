@@ -1,5 +1,6 @@
+
 import React, { useEffect, useState, useRef } from 'react';
-import { Eraser, Pause, Play, Settings, Minus, Square, X, Home, HelpCircle, RotateCcw, PenTool, Languages, Bot, PencilLine, BookOpen, Sparkles, Mic, History, Pin, PinOff, Wand2, Copy, Trash2, ClipboardPaste, Scissors, Replace, ChevronDown, Check, ListTodo, Volume2, FileAudio, Loader2, Zap } from 'lucide-react';
+import { Eraser, Pause, Play, Settings, Minus, Square, X, Home, HelpCircle, RotateCcw, PenTool, Languages, Bot, PencilLine, BookOpen, Sparkles, Mic, History, Pin, PinOff, Wand2, Copy, Trash2, ClipboardPaste, Scissors, Replace, ChevronDown, Check, ListTodo, Volume2, FileAudio, Loader2, Zap, Keyboard } from 'lucide-react';
 import { Language, ProcessingStatus, CorrectionSettings, Tab } from '../types';
 import { getTranslation } from '../utils/i18n';
 import { Tooltip } from './Tooltip';
@@ -30,7 +31,8 @@ interface AppHeaderProps {
   onCopyText: () => void;
   onPasteText: () => void;
   onCutText: () => void; 
-  onClearAndPaste: () => void; 
+  onClearAndPaste: () => void;
+  onSwitchLayout: () => void; // New prop
   showClipboard: boolean;
   onToggleClipboard: () => void;
   onUpdateSettings?: (newSettings: CorrectionSettings) => void;
@@ -93,6 +95,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onPasteText,
   onCutText,
   onClearAndPaste,
+  onSwitchLayout,
   showClipboard, 
   onToggleClipboard,
   onUpdateSettings,
@@ -134,18 +137,20 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 
   const toggleSetting = (key: keyof CorrectionSettings) => {
       if (onUpdateSettings) {
-          onUpdateSettings({ ...settings, [key]: !settings[key] });
+          const nextValue = !settings[key];
+          const updates: any = { [key]: nextValue };
+          
+          // HYBRID LOGIC: If enabling a specific feature, force Global Enabled = true
+          // This allows users to "Wake up" specific functions even if Master Switch was off.
+          if (nextValue === true) {
+              updates.enabled = true;
+          }
+          
+          onUpdateSettings({ ...settings, ...updates });
       } else {
           console.warn("onUpdateSettings not provided to AppHeader");
       }
   };
-
-  const tabs: { id: Tab; icon: React.ElementType; label: string; activeColor: string; shortcut: string }[] = [
-    { id: 'editor', icon: PenTool, label: t.tabEditor, activeColor: 'bg-slate-800', shortcut: 'Ctrl+1' },
-    { id: 'chat', icon: Bot, label: t.tabAssist, activeColor: 'bg-indigo-600', shortcut: 'Ctrl+2' },
-    { id: 'translator', icon: Languages, label: t.tabTrans, activeColor: 'bg-emerald-600', shortcut: 'Ctrl+3' },
-    { id: 'planner', icon: ListTodo, label: t.tabPlanner || 'Planner', activeColor: 'bg-amber-600', shortcut: 'Ctrl+4' },
-  ];
 
   const isTypingActive = status === 'typing';
   const isRecordingActive = status === 'recording' || status === 'transcribing';
@@ -156,6 +161,28 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   const isSpeaking = status === 'speaking'; 
 
   const isSmartActive = settings.enabled;
+  const isAiFeaturesActive = settings.fixTypos || settings.fixPunctuation;
+
+  const toggleAiFeatures = () => {
+      if (onUpdateSettings) {
+          const newState = !isAiFeaturesActive;
+          onUpdateSettings({
+              ...settings,
+              fixTypos: newState,
+              fixPunctuation: newState,
+              // If turning ON, ensure app is enabled. 
+              // If turning OFF, leave app enabled (for raw dictation)
+              enabled: newState ? true : settings.enabled
+          });
+      }
+  };
+
+  const tabs: { id: Tab; icon: React.ElementType; label: string; activeColor: string; shortcut: string }[] = [
+    { id: 'editor', icon: PenTool, label: t.tabEditor, activeColor: 'bg-slate-800', shortcut: 'Ctrl+1' },
+    { id: 'chat', icon: Bot, label: t.tabAssist, activeColor: 'bg-indigo-600', shortcut: 'Ctrl+2' },
+    { id: 'translator', icon: Languages, label: t.tabTrans, activeColor: 'bg-emerald-600', shortcut: 'Ctrl+3' },
+    { id: 'planner', icon: ListTodo, label: t.tabPlanner || 'Planner', activeColor: 'bg-amber-600', shortcut: 'Ctrl+4' },
+  ];
 
   // --- SUB-COMPONENTS (PANELS) ---
 
@@ -195,7 +222,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </Tooltip>
 
         <Tooltip content={isSmartActive ? t.tooltipPauseAction : t.tooltipResumeAction} side="bottom">
-            <button onClick={onTogglePause} className={`p-2 rounded-full transition-all cursor-pointer hover:bg-slate-800 active:scale-95 touch-manipulation ${isSmartActive ? 'text-emerald-400 hover:text-emerald-300' : 'text-amber-400 hover:text-amber-300'}`}>
+            <button 
+                onClick={onTogglePause} 
+                className={`p-2 rounded-full transition-all cursor-pointer hover:bg-slate-800 active:scale-95 touch-manipulation text-slate-500 ${isSmartActive ? 'hover:text-yellow-400' : 'hover:text-emerald-400'}`}
+            >
                 {isSmartActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </button>
         </Tooltip>
@@ -203,8 +233,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <div className="w-px h-4 bg-slate-800 mx-1 md:mx-2 shrink-0" />
 
         <div className="flex items-center gap-2">
-            <Tooltip content={isSmartActive ? t.modeSmart : t.modeTransOnly} side="bottom">
-                <button onClick={onTogglePause} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${isRecordingActive ? 'bg-orange-950/40 border-orange-500/50 text-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.3)] animate-pulse' : isSmartActive ? 'bg-purple-900/20 border-purple-500/30 text-purple-400 hover:bg-purple-900/40' : 'bg-orange-900/20 border-orange-500/30 text-orange-400 hover:bg-orange-900/40'}`}>
+            <Tooltip content={isAiFeaturesActive ? t.modeSmart : t.modeTransOnly} side="bottom">
+                <button onClick={toggleAiFeatures} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${isRecordingActive ? 'bg-orange-950/40 border-orange-500/50 text-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.3)] animate-pulse' : isAiFeaturesActive ? 'bg-purple-900/20 border-purple-500/30 text-purple-400 hover:bg-purple-900/40' : 'bg-orange-900/20 border-orange-500/30 text-orange-400 hover:bg-orange-900/40'}`}>
                     <Mic className={`w-3.5 h-3.5 ${isRecordingActive ? 'animate-pulse' : ''}`} />
                 </button>
             </Tooltip>
@@ -222,25 +252,25 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </Tooltip>
 
              <Tooltip content={settings.miniScripts ? t.detailScriptFix : t.pausedScriptFix} side="bottom">
-                <button onClick={() => toggleSetting('miniScripts')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.miniScripts || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40' : isScriptFixActive ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-[0_0_15px_rgba(96,165,250,0.5)]' : 'bg-slate-800 border-slate-700 text-blue-500/60 hover:text-blue-400 shadow-sm'}`}>
+                <button onClick={() => toggleSetting('miniScripts')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.miniScripts || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 hover:opacity-100' : isScriptFixActive ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-[0_0_15px_rgba(96,165,250,0.5)]' : 'bg-slate-800 border-slate-700 text-blue-500/60 hover:text-blue-400 shadow-sm'}`}>
                     {settings.miniScripts ? <Wand2 className={`w-3.5 h-3.5 ${isScriptFixActive ? 'animate-pulse' : ''}`} /> : <Pause className="w-3.5 h-3.5" />}
                 </button>
             </Tooltip>
 
             <Tooltip content={settings.dictionaryCheck ? t.detailDictCheck : t.pausedDictCheck} side="bottom">
-                <button onClick={() => toggleSetting('dictionaryCheck')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.dictionaryCheck || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40' : isDictChecking ? 'bg-yellow-500/20 border-yellow-400 text-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : 'bg-slate-800 border-slate-700 text-yellow-600/70 hover:text-yellow-400 shadow-sm'}`}>
-                    {settings.dictionaryCheck ? <BookOpen className={`w-3.5 h-3.5 ${isDictChecking ? 'animate-bounce' : ''}`} /> : <Pause className="w-3.5 h-3.5" />}
+                <button onClick={() => toggleSetting('dictionaryCheck')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.dictionaryCheck || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 hover:opacity-100' : isDictChecking ? 'bg-yellow-500/20 border-yellow-400 text-yellow-200 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : 'bg-slate-800 border-slate-700 text-yellow-600/70 hover:text-yellow-400 shadow-sm'}`}>
+                    {settings.dictionaryCheck ? <BookOpen className={`w-3.5 h-3.5 ${isDictChecking ? 'animate-pulse' : ''}`} /> : <Pause className="w-3.5 h-3.5" />}
                 </button>
             </Tooltip>
 
             <Tooltip content={settings.fixTypos ? t.detailAiFixing : t.pausedAiFixing} side="bottom">
-                <button onClick={() => toggleSetting('fixTypos')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.fixTypos || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40' : isAiFixingActive ? 'bg-purple-500/20 border-purple-400 text-purple-200 shadow-[0_0_15px_rgba(192,132,252,0.5)]' : 'bg-slate-800 border-slate-700 text-purple-500/60 hover:text-purple-400 shadow-sm'}`}>
+                <button onClick={() => toggleSetting('fixTypos')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.fixTypos || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 hover:opacity-100' : isAiFixingActive ? 'bg-purple-500/20 border-purple-400 text-purple-200 shadow-[0_0_15px_rgba(192,132,252,0.5)]' : 'bg-slate-800 border-slate-700 text-purple-500/60 hover:text-purple-400 shadow-sm'}`}>
                     {settings.fixTypos ? <Zap className={`w-3.5 h-3.5 ${isAiFixingActive ? 'animate-pulse' : ''}`} /> : <Pause className="w-3.5 h-3.5" />}
                 </button>
             </Tooltip>
             
             <Tooltip content={settings.fixPunctuation ? t.detailFinalizing : t.pausedFinalizing} side="bottom">
-                <button onClick={() => toggleSetting('fixPunctuation')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.fixPunctuation || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40' : isAiFinalizingActive ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-[0_0_15px_rgba(52,211,153,0.5)]' : 'bg-slate-800 border-slate-700 text-emerald-600/70 hover:text-emerald-400 shadow-sm'}`}>
+                <button onClick={() => toggleSetting('fixPunctuation')} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${!settings.fixPunctuation || !isSmartActive ? 'bg-slate-800 border-slate-700 text-slate-500 opacity-40 hover:opacity-100' : isAiFinalizingActive ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 shadow-[0_0_15px_rgba(52,211,153,0.5)]' : 'bg-slate-800 border-slate-700 text-emerald-600/70 hover:text-emerald-400 shadow-sm'}`}>
                     {settings.fixPunctuation ? <Sparkles className={`w-3.5 h-3.5 ${isAiFinalizingActive ? 'animate-spin' : ''}`} /> : <Pause className="w-3.5 h-3.5" />}
                 </button>
             </Tooltip>
@@ -281,6 +311,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </div>
 
         <div className="w-px h-3 bg-slate-700/50 mx-0.5" />
+        
+        {/* Layout Switcher */}
+        <Tooltip content={(language === 'ru' ? 'Перевод раскладки' : 'Switch Layout') + " (Alt+`)"} side="bottom">
+            <button onClick={onSwitchLayout} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-teal-400 transition-colors cursor-pointer active:scale-95">
+                <Keyboard className="w-4 h-4" />
+            </button>
+        </Tooltip>
+
         <Tooltip content={(language === 'ru' ? 'Вырезать всё' : 'Cut All') + " (Alt+1)"} side="bottom">
             <button onClick={onCutText} className="p-1.5 rounded-md hover:bg-slate-800 text-slate-400 hover:text-pink-400 transition-colors cursor-pointer active:scale-95">
                 <Scissors className="w-4 h-4" />

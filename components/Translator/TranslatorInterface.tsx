@@ -145,8 +145,8 @@ export const TranslatorInterface: React.FC<TranslatorInterfaceProps> = ({ langua
                             onClick={toggleLive}
                             className={`p-2 rounded-lg transition-colors border ${
                                 isLive 
-                                ? 'text-emerald-400 bg-emerald-950/30 border-emerald-900/50 hover:bg-emerald-900/50' 
-                                : 'text-amber-400 bg-amber-950/30 border-amber-900/50 hover:bg-amber-900/50'
+                                ? 'text-amber-400 bg-amber-950/30 border-amber-900/50 hover:bg-amber-900/50' 
+                                : 'text-emerald-400 bg-emerald-950/30 border-emerald-900/50 hover:bg-emerald-900/50'
                             }`}
                         >
                             {isLive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}

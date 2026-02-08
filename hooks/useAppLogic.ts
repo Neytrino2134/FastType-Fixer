@@ -320,15 +320,11 @@ export const useAppLogic = () => {
                 enabled: false // Explicitly disable to trigger "Paused" UI
             };
         } else {
-            // RESUME
+            // RESUME (HYBRID: Preserve existing flags)
             setStatus('idle');
             return {
                 ...prev,
-                enabled: true,
-                // Restore smart flags to ensure good experience on resume
-                fixTypos: true,
-                fixPunctuation: true,
-                dictionaryCheck: true
+                enabled: true
             };
         }
     });

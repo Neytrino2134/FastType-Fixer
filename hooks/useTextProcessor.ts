@@ -156,14 +156,13 @@ export const useTextProcessor = ({
             // Check for ANY sentence terminator to identify bulk content
             const matches = unfinalizedText.match(/[.!?](\s|$)/g);
             
-            // >= 1 match triggers bulk logic for pasted/long segments.
-            // We also trigger if the segment is long enough (> 30 chars) even without punctuation, 
-            // to catch long unpunctuated dictations.
-            if ((matches && matches.length >= 1) || unfinalizedText.length > 50) {
+            // >= 1 match triggers bulk logic.
+            // LOWERED THRESHOLD: Trigger if length > 10 to catch short dictations like "Hello" or "Good morning".
+            // Dictation often lacks punctuation, so length check is critical.
+            if ((matches && matches.length >= 1) || unfinalizedText.length > 10) {
                 // Only run bulk if flags are active
                 if (settings.fixTypos && settings.fixPunctuation) {
-                     // Update: Process the WHOLE unfinalized segment.
-                     // The AI is smart enough to punctuate the tail if it's a dangling sentence.
+                     // Process the WHOLE unfinalized segment.
                      await runBulkFinalization(unfinalizedText, committedLen);
                      return;
                 }
@@ -362,7 +361,6 @@ export const useTextProcessor = ({
 
         try {
             // Bulk Finalization uses "fixAndFinalize" which is more robust (Typos + Punctuation)
-            // This is ideal for skipping the dictionary step.
             const finalized = await fixAndFinalize(trimmedInput, language);
             let finalChunk = leadingSpace + finalized;
             finalChunk = ensureProperSpacing(finalChunk);
@@ -372,16 +370,19 @@ export const useTextProcessor = ({
             if (/[.!?]$/.test(finalChunk) && !/\s$/.test(finalChunk)) {
                  const fullText = textRef.current;
                  const nextChar = fullText[startOffset + textChunk.length];
-                 if (nextChar && nextChar !== ' ' && nextChar !== '.') {
+                 // If nextChar is undefined/empty (end of text) OR if it's not a space/dot, append space
+                 if (!nextChar || (nextChar !== ' ' && nextChar !== '.')) {
                      finalChunk += ' ';
                  }
             }
 
             if (finalChunk !== textChunk) {
                 const newFullText = replaceTextRange(startOffset, startOffset + textChunk.length, finalChunk);
+                
+                // CRITICAL FIX: If replacement returns null (race condition), reset status and exit.
+                // This prevents hanging spinner.
                 if (!newFullText) {
-                    // Force state cleanup if replacement fails
-                    onStatusChange('error');
+                    onStatusChange('idle'); 
                     return;
                 }
 
@@ -395,7 +396,6 @@ export const useTextProcessor = ({
                 
                 const blocks = splitIntoBlocks(finalChunk);
                 blocks.forEach(b => {
-                    // Treat all parts as finalized in bulk mode
                     addFinalizedSentence(b.text);
                 });
                 
@@ -420,6 +420,7 @@ export const useTextProcessor = ({
 
                 onStatusChange('done');
             } else {
+                // If text didn't change but was processed, mark as committed
                 if (textRef.current.length >= startOffset + textChunk.length) {
                     const newLen = startOffset + textChunk.length;
                     setCommittedLength(newLen);
@@ -535,7 +536,8 @@ export const useTextProcessor = ({
             if (/[.!?]$/.test(finalChunk) && !/\s$/.test(finalChunk)) {
                  const fullText = textRef.current;
                  const nextChar = fullText[startOffset + textChunk.length];
-                 if (nextChar && nextChar !== ' ') {
+                 // If end of doc OR next char is not space, add space
+                 if (!nextChar || (nextChar !== ' ')) {
                      finalChunk += ' ';
                  }
             }

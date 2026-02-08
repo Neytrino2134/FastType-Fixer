@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { SmartEditor, SmartEditorHandle } from './components/SmartEditor';
 import { WelcomeScreen } from './components/WelcomeScreen';
@@ -81,13 +83,17 @@ export default function App() {
   // State for transferring text between tabs
   const [transferRequest, setTransferRequest] = useState<{ text: string, target: Tab, timestamp: number } | null>(null);
 
-  // GLOBAL HOTKEYS FOR EDITOR ACTIONS (Alt + 1..5)
+  // GLOBAL HOTKEYS FOR EDITOR ACTIONS (Alt + 1..5, Alt + `)
   useEffect(() => {
       const handleGlobalActions = (e: KeyboardEvent) => {
           if (state.appState !== 'app' || state.currentTab !== 'editor') return;
           
           if (e.altKey && !e.ctrlKey && !e.shiftKey) {
               switch(e.code) {
+                  case 'Backquote': // Alt+` (Tilde): Switch Layout
+                      e.preventDefault();
+                      editorRef.current?.switchLayout();
+                      break;
                   case 'Digit1': // Alt+1: Cut All
                       e.preventDefault();
                       editorRef.current?.cut();
@@ -157,6 +163,10 @@ export default function App() {
 
   const handleHeaderClearAndPaste = useCallback(() => {
     editorRef.current?.clearAndPaste();
+  }, []);
+
+  const handleHeaderSwitchLayout = useCallback(() => {
+    editorRef.current?.switchLayout();
   }, []);
 
   // Tab Transfer Actions
@@ -310,6 +320,7 @@ export default function App() {
                 onPasteText={handleHeaderPaste}
                 onCutText={handleHeaderCut}
                 onClearAndPaste={handleHeaderClearAndPaste}
+                onSwitchLayout={handleHeaderSwitchLayout} // New Handler
                 onUpdateSettings={actions.setSettings}
                 onSendToChat={handleSendToChat}
                 onSendToTranslator={handleSendToTranslator}

@@ -398,9 +398,11 @@ export const useSmartEditor = ({
 
                       addDictatedSegment(normalizeBlock(resultText));
 
-                      setCorrectedLength(newLen);
-                      setCheckedLength(newLen);
-                      setCheckingLength(newLen);
+                      // IMPORTANT: Do NOT advance validation pointers here. 
+                      // Leave them as they are so the pipeline picks up the new text as "Raw/Unchecked"
+                      // and triggers Bulk Finalization.
+                      // setCorrectedLength(newLen); <--- REMOVED
+                      // setCheckedLength(newLen);   <--- REMOVED
 
                       onStatsUpdate(1);
                       saveCheckpoint(newTextValue, committedLengthRef.current, newLen, ['dictated', 'raw_dictation']);
@@ -428,7 +430,7 @@ export const useSmartEditor = ({
           }
       };
       reader.readAsDataURL(file);
-  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, addNotification]);
+  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, addNotification, settings.enabled]);
 
   const handleAudioChunk = useCallback(async (base64: string, mimeType: string) => {
     // 1. Increment Pending Count
@@ -452,9 +454,11 @@ export const useSmartEditor = ({
 
             addDictatedSegment(normalizeBlock(transcription));
 
-            setCorrectedLength(newLen);
-            setCheckedLength(newLen);
-            setCheckingLength(newLen);
+            // CRITICAL FIX: Do NOT advance the verification pointers (Corrected/Checked).
+            // We want the useTextProcessor to see this text as "Dirty" so it triggers Finalization.
+            // setCorrectedLength(newLen); <-- REMOVED
+            // setCheckedLength(newLen);   <-- REMOVED
+            // setCheckingLength(newLen);  <-- REMOVED
 
             onStatsUpdate(1);
             
@@ -480,16 +484,13 @@ export const useSmartEditor = ({
             pendingTranscriptionsCount.current = 0; 
             setIsAnalyzing(false);
             
-            // Only reset status if we are NOT actively recording.
-            // This prevents "flickering" if a chunk finishes while we are still speaking.
+            // Force status to Idle to ensure the Processor tick wakes up immediately
             if (!isRecordingRef.current) {
-                 // Even if we don't reset here, the EditorToolbar is now decoupled, so the button won't flicker.
-                 // But we reset status for other UI elements (like the 'Analyze' badge).
-                 // onStatusChange(settings.enabled ? 'idle' : 'paused'); 
+                 onStatusChange(settings.enabled ? 'idle' : 'paused'); 
             }
         }
     }
-  }, [language, onStatsUpdate, setText, saveCheckpoint, notifyActivity, addDictatedSegment, setCorrectedLength, setCheckedLength, setCheckingLength, settings.enabled]);
+  }, [language, onStatsUpdate, setText, saveCheckpoint, notifyActivity, addDictatedSegment, settings.enabled, onStatusChange]);
 
   // We need a ref to access isRecording inside callbacks without dependency loops
   const isRecordingRef = useRef(isRecording);

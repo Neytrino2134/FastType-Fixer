@@ -3,6 +3,7 @@
 
 
 
+
 import { NOISE_HALLUCINATIONS, FILLER_WORDS } from '../data/noiseDictionary';
 import { Language } from '../types';
 
@@ -159,4 +160,25 @@ export const formatPunctuationOnTheFly = (text: string): string => {
   // Remove one or more spaces immediately followed by .,!?:;
   // Does not affect the space AFTER the punctuation.
   return text.replace(/\s+([.,!?:;])/g, '$1');
+};
+
+/**
+ * Converts text between English (QWERTY) and Russian (JCUKEN) layouts.
+ * E.g. "Ghbdtn" -> "Привет" and "руддщ" -> "hello".
+ */
+export const switchKeyboardLayout = (text: string): string => {
+    // Physical key mapping
+    const en = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./~QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?@#$^&";
+    const ru = "ёйцукенгшщзхъфывапролджэячсмитьбю.ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,\"№;:?";
+
+    // We build a map for O(1) lookup
+    const map = new Map<string, string>();
+    for (let i = 0; i < en.length; i++) {
+        map.set(en[i], ru[i] || '');
+        map.set(ru[i], en[i] || '');
+    }
+
+    return text.split('').map(char => {
+        return map.get(char) || char;
+    }).join('');
 };

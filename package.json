@@ -1,7 +1,7 @@
 {
   "name": "fasttype-ai",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "main": "main.js",
   "type": "module",
   "homepage": ".",
@@ -13,9 +13,13 @@
     "electron:build": "npm run build && electron-builder",
     "convert-dict": "node scripts/convert_dictionaries.js",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:android": "npx cap open android"
   },
   "dependencies": {
+    "@capacitor/android": "^5.7.0",
+    "@capacitor/core": "^5.7.0",
     "@google/genai": "^0.2.0",
     "lucide-react": "^0.344.0",
     "react": "^18.2.0",
@@ -23,6 +27,7 @@
     "react-markdown": "^9.0.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^5.7.0",
     "@types/react": "^18.2.64",
     "@types/react-dom": "^18.2.21",
     "@vitejs/plugin-react": "^4.2.1",

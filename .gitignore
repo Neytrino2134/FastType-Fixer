@@ -53,15 +53,19 @@ lerna-debug.log*
 Thumbs.db
 Desktop.ini
 
-# --- Ключи Android ---
+# --- Android (Generated Platform) ---
+# Игнорируем всю папку Android, так как она генерируется Capacitor
+android/
+
+# --- Ключи и артефакты Android (глобально) ---
 upload-keystore.jks
 *.jks
 *.keystore
-android/app/*.jks
-android/key.properties
-android/local.properties
-android/app/build/
-android/.gradle/
+key.properties
+local.properties
+.gradle/
+*.apk
+*.aab
 
 # --- Assets ---
 # Раскомментируйте, если в assets лежат тяжелые файлы

@@ -159,13 +159,26 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
       // Native behavior moves the caret to the click position usually.
       // We rely on textareaRef to get current selection (which browser updates on mousedown before contextmenu).
       if (textareaRef.current) {
+          e.preventDefault(); // Block default menu regardless of word presence
+          
           const pos = textareaRef.current.selectionStart;
           const wordInfo = findWordAtCursor(pos);
           
+          // CORRECT COORDINATE CALCULATION
+          let x = e.clientX;
+          let y = e.clientY;
+
+          if (textareaRef.current.parentElement) {
+              const rect = textareaRef.current.parentElement.getBoundingClientRect();
+              x = e.clientX - rect.left;
+              y = e.clientY - rect.top;
+          }
+
+          // If no word found (empty space/doc), pass empty string and current pos
           if (wordInfo) {
-              e.preventDefault(); // Block default menu
-              // Add offset to avoid rendering directly under cursor hot spot
-              onRequestSuggestions(wordInfo.word, wordInfo.start, wordInfo.end, e.clientX + 2, e.clientY + 2);
+              onRequestSuggestions(wordInfo.word, wordInfo.start, wordInfo.end, x + 2, y + 2);
+          } else {
+              onRequestSuggestions("", pos, pos, x + 2, y + 2);
           }
       }
   };
@@ -180,8 +193,21 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
           if (textareaRef.current) {
               const pos = textareaRef.current.selectionStart;
               const wordInfo = findWordAtCursor(pos);
+              
+              // Apply same coordinate correction for touch
+              let x = clientX;
+              let y = clientY;
+              
+              if (textareaRef.current.parentElement) {
+                  const rect = textareaRef.current.parentElement.getBoundingClientRect();
+                  x = clientX - rect.left;
+                  y = clientY - rect.top;
+              }
+
               if (wordInfo) {
-                  onRequestSuggestions(wordInfo.word, wordInfo.start, wordInfo.end, clientX + 2, clientY + 2);
+                  onRequestSuggestions(wordInfo.word, wordInfo.start, wordInfo.end, x + 2, y + 2);
+              } else {
+                  onRequestSuggestions("", pos, pos, x + 2, y + 2);
               }
           }
       }, 600); // 600ms long press

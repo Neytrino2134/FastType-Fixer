@@ -178,6 +178,11 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
   const handleCtxCut = async () => {
       if (!contextMenu) return;
       const { targetWord, rangeStart, rangeEnd } = contextMenu;
+      // If empty word/no text, standard cut might be weird, but let's allow it as no-op or range cut
+      if (!targetWord && rangeStart === rangeEnd) {
+          handleCloseContextMenu();
+          return;
+      }
       try {
           await safeWriteClipboard(targetWord);
           const newText = text.substring(0, rangeStart) + text.substring(rangeEnd);
@@ -190,14 +195,23 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
   };
 
   const handleCtxPaste = async () => {
+      // CLEAR AND PASTE ACTION (Replaces "Paste")
       if (!contextMenu) return;
-      const { rangeStart, rangeEnd } = contextMenu;
       try {
+          // Check for Images logic not needed here, strictly text paste
           const clipText = await safeReadClipboard();
           if (clipText) {
-              const newText = text.substring(0, rangeStart) + clipText + text.substring(rangeEnd);
-              setFullText(newText);
+              setFullText(clipText);
               handleCloseContextMenu();
+              addNotification(props.language === 'ru' ? "Вставлено (Замена)" : "Pasted (Replaced)", 'success');
+              
+              // Move cursor to end
+              setTimeout(() => {
+                  if (textareaRef.current) {
+                      textareaRef.current.focus();
+                      textareaRef.current.setSelectionRange(clipText.length, clipText.length);
+                  }
+              }, 10);
           }
       } catch (e) {
           addNotification(props.language === 'ru' ? "Ошибка вставки" : "Paste failed", 'error');
@@ -207,6 +221,16 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
   const handleCtxSwitchLayout = () => {
       if (!contextMenu) return;
       const { targetWord, rangeStart, rangeEnd } = contextMenu;
+      // If no word selected, switch entire text or ignore? 
+      // Context menu usually targets a word. If empty, maybe switch whole text?
+      if (!targetWord) {
+          const converted = switchKeyboardLayout(text);
+          setFullText(converted);
+          handleCloseContextMenu();
+          addNotification(props.language === 'ru' ? "Раскладка изменена (Всё)" : "Layout switched (All)", 'success');
+          return;
+      }
+
       const converted = switchKeyboardLayout(targetWord);
       const newText = text.substring(0, rangeStart) + converted + text.substring(rangeEnd);
       setFullText(newText);

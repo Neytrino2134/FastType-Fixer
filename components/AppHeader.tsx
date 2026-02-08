@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Eraser, Pause, Play, Settings, Minus, Square, X, Home, HelpCircle, RotateCcw, PenTool, Languages, Bot, PencilLine, BookOpen, Sparkles, Mic, History, Pin, PinOff, Wand2, Copy, Trash2, ClipboardPaste, Scissors, Replace, ChevronDown, Check, ListTodo, Volume2, FileAudio, Loader2, Zap, Keyboard } from 'lucide-react';
+import { Eraser, Pause, Play, Settings, Minus, Square, X, Home, HelpCircle, RotateCcw, PenTool, Languages, Bot, PencilLine, BookOpen, Sparkles, Mic, History, Pin, PinOff, Wand2, Copy, Trash2, ClipboardPaste, Scissors, Replace, ChevronDown, Check, ListTodo, Volume2, FileAudio, Loader2, Zap, Keyboard, Palette } from 'lucide-react';
 import { Language, ProcessingStatus, CorrectionSettings, Tab } from '../types';
 import { getTranslation } from '../utils/i18n';
 import { Tooltip } from './Tooltip';
@@ -142,7 +142,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           
           // HYBRID LOGIC: If enabling a specific feature, force Global Enabled = true
           // This allows users to "Wake up" specific functions even if Master Switch was off.
-          if (nextValue === true) {
+          // EXCEPTION: monochromeMode is purely visual, do not wake up engine.
+          if (nextValue === true && key !== 'monochromeMode') {
               updates.enabled = true;
           }
           
@@ -233,9 +234,39 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         <div className="w-px h-4 bg-slate-800 mx-1 md:mx-2 shrink-0" />
 
         <div className="flex items-center gap-2">
+            
+            {/* AI Features Toggle (Mic Icon) */}
             <Tooltip content={isAiFeaturesActive ? t.modeSmart : t.modeTransOnly} side="bottom">
-                <button onClick={toggleAiFeatures} className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95 ${isRecordingActive ? 'bg-orange-950/40 border-orange-500/50 text-orange-400 shadow-[0_0_10px_rgba(251,146,60,0.3)] animate-pulse' : isAiFeaturesActive ? 'bg-purple-900/20 border-purple-500/30 text-purple-400 hover:bg-purple-900/40' : 'bg-orange-900/20 border-orange-500/30 text-orange-400 hover:bg-orange-900/40'}`}>
+                <button 
+                    onClick={toggleAiFeatures} 
+                    className={`
+                        shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95
+                        bg-slate-800 border-slate-700
+                        ${isRecordingActive 
+                            ? 'text-red-400 border-red-500/50 shadow-[0_0_10px_rgba(248,113,113,0.2)]' 
+                            : isAiFeaturesActive 
+                                ? 'text-purple-400 hover:text-purple-300 hover:border-purple-500/30' 
+                                : 'text-orange-400 hover:text-orange-300 hover:border-orange-500/30'
+                        }
+                    `}
+                >
                     <Mic className={`w-3.5 h-3.5 ${isRecordingActive ? 'animate-pulse' : ''}`} />
+                </button>
+            </Tooltip>
+
+            {/* Gray Mode Toggle */}
+            <Tooltip content={settings.monochromeMode ? (t.tooltipNoColors || "Gray Mode") : (t.tooltipColors || "Colors On")} side="bottom">
+                <button 
+                    onClick={() => toggleSetting('monochromeMode')} 
+                    className={`
+                        shrink-0 flex items-center justify-center w-8 h-8 rounded-full border transition-all duration-300 cursor-pointer active:scale-95
+                        ${!settings.monochromeMode 
+                            ? 'bg-slate-800 border-slate-700 text-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.3)]' 
+                            : 'bg-slate-600 border-slate-500 text-slate-200'
+                        }
+                    `}
+                >
+                    <Palette className="w-3.5 h-3.5" />
                 </button>
             </Tooltip>
 

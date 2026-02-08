@@ -1,6 +1,8 @@
 
+
+
 import React, { useRef, useState, useImperativeHandle, forwardRef } from 'react';
-import { Lock, CheckCheck, Undo2, Redo2, Square, Mic, Wand2, Loader2, Clock, Upload, Send, FileAudio, X, TestTube, Image as ImageIcon, File, ClipboardList } from 'lucide-react';
+import { Lock, CheckCheck, Undo2, Redo2, Square, Mic, Wand2, Loader2, Clock, Upload, Send, FileAudio, X, TestTube, Image as ImageIcon, File, ClipboardList, ShieldAlert } from 'lucide-react';
 import { getTranslation } from '../../utils/i18n';
 import { Language, ProcessingStatus } from '../../types';
 import { Tooltip } from '../Tooltip';
@@ -27,7 +29,8 @@ interface EditorToolbarProps {
   isDevRecording?: boolean;
   showClipboard: boolean;
   onToggleClipboard: () => void;
-  isRecording: boolean; // NEW: Strict hardware state
+  isRecording: boolean;
+  isFreeTier?: boolean; // NEW PROP
 }
 
 export interface EditorToolbarHandle {
@@ -56,7 +59,8 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
   isDevRecording = false,
   showClipboard,
   onToggleClipboard,
-  isRecording // Receive directly from hook
+  isRecording,
+  isFreeTier = true // Default true for safety
 }, ref) => {
   const t = getTranslation(language);
   
@@ -93,8 +97,18 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
   }
 
   // Helper to determine Main Button Appearance
-  // STRICT LOGIC: If isRecording is true, ALWAYS show STOP. Ignore global status.
   const getMainButtonConfig = () => {
+      // FREE TIER LOCK
+      if (isFreeTier) {
+          return {
+              text: "Record",
+              icon: <Lock className="w-3.5 h-3.5" />,
+              className: 'opacity-50 cursor-not-allowed bg-slate-800 border-slate-700 text-slate-500',
+              disabled: true,
+              tooltip: t.paidFeatureTooltip || "Only for Paid Tier keys"
+          };
+      }
+
       // STATE 1: RECORDING -> Show Stop
       if (isRecording && !isDevRecording) {
           return {
@@ -223,7 +237,7 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
         {/* MAIN RECORD BUTTON */}
         <Tooltip content={mainBtn.tooltip} side="top">
             <button
-                onClick={onRecord}
+                onClick={isFreeTier ? undefined : onRecord}
                 disabled={mainBtn.disabled}
                 className={`flex items-center justify-center gap-2 px-4 md:px-4 py-2.5 md:py-2 rounded-lg text-sm font-medium shadow-lg transition-all active:scale-95 group border touch-manipulation ${mainBtn.className}`}
             >
@@ -255,13 +269,15 @@ export const EditorToolbar = forwardRef<EditorToolbarHandle, EditorToolbarProps>
              />
              
              {!selectedFile ? (
-                <Tooltip content={t.uploadMedia || "Upload Audio/Image"} side="top">
+                <Tooltip content={isFreeTier ? (t.paidFeatureTooltip || "Free Tier (No Uploads)") : (t.uploadMedia || "Upload Audio/Image")} side="top">
                     <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={isBusy}
-                        className="p-2.5 md:p-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 hover:text-white transition-colors"
+                        onClick={isFreeTier ? undefined : () => fileInputRef.current?.click()}
+                        disabled={isBusy || isFreeTier}
+                        className={`p-2.5 md:p-2 rounded-lg bg-slate-800 border border-slate-700 transition-colors ${
+                            isFreeTier ? 'text-slate-600 opacity-50 cursor-not-allowed' : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                        }`}
                     >
-                        <Upload className="w-5 h-5 md:w-4 md:h-4" />
+                        {isFreeTier ? <Lock className="w-5 h-5 md:w-4 md:h-4" /> : <Upload className="w-5 h-5 md:w-4 md:h-4" />}
                     </button>
                 </Tooltip>
              ) : (

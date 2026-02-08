@@ -1,5 +1,5 @@
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import { getTranslation } from '../../utils/i18n';
 import { Language, ProcessingStatus, VisualizerStatus } from '../../types';
 import { splitIntoBlocks, normalizeBlock } from '../../utils/textStructure';
@@ -44,6 +44,8 @@ interface EditorSurfaceProps {
   visualizerMirror?: boolean;
   onDropFile?: (file: File) => void; // Handler for Drag Drop
   processingOverlay?: ProcessingOverlay | null; // NEW: Track active AI operation
+  monochromeMode?: boolean; // NEW: Grey only setting
+  onRequestSuggestions?: (word: string, start: number, end: number, x: number, y: number) => void;
 }
 
 export const EditorSurface: React.FC<EditorSurfaceProps> = ({
@@ -81,10 +83,13 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
   visualizerGravity = 2.0,
   visualizerMirror = false,
   onDropFile,
-  processingOverlay
+  processingOverlay,
+  monochromeMode = false,
+  onRequestSuggestions
 }) => {
   const t = getTranslation(language);
   const [isDragging, setIsDragging] = useState(false);
+  const touchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
       e.preventDefault();
@@ -110,6 +115,82 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
           if (onDropFile) {
               onDropFile(file);
           }
+      }
+  };
+
+  // --- CONTEXT MENU LOGIC ---
+
+  const findWordAtCursor = (cursorPos: number): { word: string, start: number, end: number } | null => {
+      if (!text) return null;
+      
+      const isSeparator = (char: string) => /[\s.,!?;:()""«»—\-\/_+]/.test(char);
+      
+      // Special logic: if we have a selection (not just a cursor), return that
+      if (textareaRef.current && textareaRef.current.selectionStart !== textareaRef.current.selectionEnd) {
+          return {
+              word: text.substring(textareaRef.current.selectionStart, textareaRef.current.selectionEnd),
+              start: textareaRef.current.selectionStart,
+              end: textareaRef.current.selectionEnd
+          };
+      }
+      
+      let start = cursorPos;
+      while (start > 0 && !isSeparator(text[start - 1])) {
+          start--;
+      }
+      
+      let end = cursorPos;
+      while (end < text.length && !isSeparator(text[end])) {
+          end++;
+      }
+      
+      if (start === end) return null;
+      
+      return {
+          word: text.slice(start, end),
+          start,
+          end
+      };
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+      if (!onRequestSuggestions) return;
+      
+      // Native behavior moves the caret to the click position usually.
+      // We rely on textareaRef to get current selection (which browser updates on mousedown before contextmenu).
+      if (textareaRef.current) {
+          const pos = textareaRef.current.selectionStart;
+          const wordInfo = findWordAtCursor(pos);
+          
+          if (wordInfo) {
+              e.preventDefault(); // Block default menu
+              // Add offset to avoid rendering directly under cursor hot spot
+              onRequestSuggestions(wordInfo.word, wordInfo.start, wordInfo.end, e.clientX + 2, e.clientY + 2);
+          }
+      }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+      if (!onRequestSuggestions) return;
+      const touch = e.touches[0];
+      const clientX = touch.clientX;
+      const clientY = touch.clientY;
+
+      touchTimerRef.current = setTimeout(() => {
+          if (textareaRef.current) {
+              const pos = textareaRef.current.selectionStart;
+              const wordInfo = findWordAtCursor(pos);
+              if (wordInfo) {
+                  onRequestSuggestions(wordInfo.word, wordInfo.start, wordInfo.end, clientX + 2, clientY + 2);
+              }
+          }
+      }, 600); // 600ms long press
+  };
+
+  const cancelTouch = () => {
+      if (touchTimerRef.current) {
+          clearTimeout(touchTimerRef.current);
+          touchTimerRef.current = null;
       }
   };
 
@@ -146,11 +227,11 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
              if (overlapEnd > overlapStart) {
                  if (activeOverlay.type === 'fixing') {
                      // Pulsing Purple (Fixing)
-                     return <span key={index} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+                     return <span key={index} className={monochromeMode ? "text-slate-300 animate-pulse brightness-110 transition-all duration-300" : "text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300"}>{block.text}</span>;
                  }
                  if (activeOverlay.type === 'finalizing') {
                      // Pulsing Green (Finalizing)
-                     return <span key={index} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{block.text}</span>;
+                     return <span key={index} className={monochromeMode ? "text-slate-300 animate-pulse brightness-110 transition-all duration-300" : "text-emerald-300 animate-pulse brightness-150 transition-all duration-300"}>{block.text}</span>;
                  }
              }
         }
@@ -159,10 +240,10 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
         // This effectively turns the whole block white/raw, even if it was previously green.
         if (!isActiveEditBlock) {
             if (finalizedSentences.has(normalized)) {
-                return <span key={index} className="text-emerald-500 transition-colors duration-500">{block.text}</span>;
+                return <span key={index} className={monochromeMode ? "text-slate-400 transition-colors duration-500" : "text-emerald-500 transition-colors duration-500"}>{block.text}</span>;
             }
             if (dictatedSegments.has(normalized)) {
-                return <span key={index} className="text-orange-400 transition-colors duration-500">{block.text}</span>;
+                return <span key={index} className={monochromeMode ? "text-slate-400 transition-colors duration-500" : "text-orange-400 transition-colors duration-500"}>{block.text}</span>;
             }
         }
 
@@ -176,10 +257,10 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
                  
                  if (overlapEnd > overlapStart) {
                      if (activeOverlay.type === 'fixing') {
-                         return <span key={subStart} className="text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+                         return <span key={subStart} className={monochromeMode ? "text-slate-300 animate-pulse brightness-110 transition-all duration-300" : "text-fuchsia-300 animate-pulse brightness-150 transition-all duration-300"}>{subText}</span>;
                      }
                      if (activeOverlay.type === 'finalizing') {
-                         return <span key={subStart} className="text-emerald-300 animate-pulse brightness-150 transition-all duration-300">{subText}</span>;
+                         return <span key={subStart} className={monochromeMode ? "text-slate-300 animate-pulse brightness-110 transition-all duration-300" : "text-emerald-300 animate-pulse brightness-150 transition-all duration-300"}>{subText}</span>;
                      }
                  }
             }
@@ -189,7 +270,7 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
                 // IMPORTANT: If we are actively editing this block, treat it as raw/dirty.
                 // Do not color it green even if parts of it are before the cursor.
                 if (!isActiveEditBlock) {
-                    return <span key={subStart} className="text-emerald-500 transition-colors duration-500">{subText}</span>;
+                    return <span key={subStart} className={monochromeMode ? "text-slate-400 transition-colors duration-500" : "text-emerald-500 transition-colors duration-500"}>{subText}</span>;
                 }
             }
 
@@ -197,15 +278,15 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
             // Default raw (Grey) is returned.
             // Note: Green (Committed) and Orange (Dictated) are handled above this check.
             if (isPaused) {
-                return <span key={subStart} className="text-slate-200 transition-colors duration-200">{subText}</span>;
+                return <span key={subStart} className={monochromeMode ? "text-slate-400 transition-colors duration-200" : "text-slate-200 transition-colors duration-200"}>{subText}</span>;
             }
 
             if (subEnd <= safeCorrected) {
                 if (aiFixedSegments.has(normalized)) {
-                    return <span key={subStart} className="text-violet-400 font-medium transition-colors duration-300">{subText}</span>;
+                    return <span key={subStart} className={monochromeMode ? "text-slate-400 transition-colors duration-300" : "text-violet-400 font-medium transition-colors duration-300"}>{subText}</span>;
                 }
                 // AI Processed but not fixed specifically? (Blue)
-                return <span key={subStart} className="text-sky-400 transition-colors duration-300">{subText}</span>;
+                return <span key={subStart} className={monochromeMode ? "text-slate-400 transition-colors duration-300" : "text-sky-400 transition-colors duration-300"}>{subText}</span>;
             }
             
             // CHECKED ZONE (Between Corrected and Checked)
@@ -231,29 +312,29 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
                                 // RULE: Ignore short words (< 4 chars) to match Worker logic
                                 // If short, always valid (Blue). If long, check Dict (Red/Blue).
                                 if (clean.length <= 3) {
-                                    return <span key={i} className="text-sky-400 transition-colors duration-200">{part}</span>;
+                                    return <span key={i} className={monochromeMode ? "text-slate-400 transition-colors duration-200" : "text-sky-400 transition-colors duration-200"}>{part}</span>;
                                 }
 
                                 const isUnknown = unknownSegments.has(clean);
                                 return (
-                                    <span key={i} className={isUnknown ? "text-red-400 font-medium transition-colors duration-200" : "text-sky-400 transition-colors duration-200"}>
+                                    <span key={i} className={monochromeMode ? "text-slate-400 transition-colors duration-200" : isUnknown ? "text-red-400 font-medium transition-colors duration-200" : "text-sky-400 transition-colors duration-200"}>
                                         {part}
                                     </span>
                                 );
                             }
                             // Separators/Punctuation match the "valid" color usually
-                            return <span key={i} className="text-sky-400 transition-colors duration-200">{part}</span>;
+                            return <span key={i} className={monochromeMode ? "text-slate-400 transition-colors duration-200" : "text-sky-400 transition-colors duration-200"}>{part}</span>;
                         })}
                     </span>
                  );
             }
 
             if (subEnd <= safeChecking) {
-                return <span key={subStart} className="text-yellow-400 font-medium transition-colors duration-300">{subText}</span>;
+                return <span key={subStart} className={monochromeMode ? "text-slate-400 transition-colors duration-300" : "text-yellow-400 font-medium transition-colors duration-300"}>{subText}</span>;
             }
 
             // Default (Raw Input)
-            return <span key={subStart} className="text-slate-200 transition-colors duration-200">{subText}</span>;
+            return <span key={subStart} className={monochromeMode ? "text-slate-400 transition-colors duration-200" : "text-slate-200 transition-colors duration-200"}>{subText}</span>;
         };
         
         // If block spans across boundaries, we must split it physically for the logic above to work cleanly
@@ -281,7 +362,7 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
 
         return <React.Fragment key={index}>{parts}</React.Fragment>;
     });
-  }, [text, committedLength, correctedLength, checkedLength, checkingLength, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments, processingOverlay, isPaused, status]);
+  }, [text, committedLength, correctedLength, checkedLength, checkingLength, finalizedSentences, aiFixedSegments, dictatedSegments, unknownSegments, processingOverlay, isPaused, status, monochromeMode]);
 
   return (
     <div 
@@ -355,10 +436,14 @@ export const EditorSurface: React.FC<EditorSurfaceProps> = ({
         onCut={onClipboard}
         onPaste={onPaste} // Attached handler
         onClick={onInteraction}
+        onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={cancelTouch}
+        onTouchMove={cancelTouch}
         placeholder={t.placeholder}
         className="custom-scrollbar absolute inset-0 w-full h-full p-8 pb-32 resize-none focus:outline-none text-lg leading-relaxed font-medium bg-transparent text-transparent caret-white placeholder:text-slate-700 z-20 overflow-y-scroll break-words"
         spellCheck={false}
       />
     </div>
   );
-};
+}

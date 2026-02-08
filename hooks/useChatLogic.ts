@@ -1,13 +1,17 @@
 
+
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, Language, Attachment } from '../types';
 import { streamChatMessage, transcribeChatAudio } from '../services/chatService';
 import { useAudioRecorder } from './useAudioRecorder';
 import { useGeminiLive } from './useGeminiLive';
+import { useNotification } from '../contexts/NotificationContext';
 
 const STORAGE_KEY_CHAT = 'fasttype_chat_history_v1';
 
 export const useChatLogic = (language: Language, apiKey: string, silenceThreshold: number = 20) => {
+    const { addNotification } = useNotification();
+    
     // UI State
     const [messages, setMessages] = useState<ChatMessage[]>(() => {
         try {
@@ -67,15 +71,21 @@ export const useChatLogic = (language: Language, apiKey: string, silenceThreshol
 
         let fullResponse = "";
         
-        const stream = streamChatMessage(apiKey, model, language, currentHistory, text, attachment);
+        try {
+            const stream = streamChatMessage(apiKey, model, language, currentHistory, text, attachment);
 
-        for await (const chunk of stream) {
-            fullResponse += chunk;
-            setMessages(prev => prev.map(msg => 
-                msg.id === botMsgId 
-                    ? { ...msg, text: fullResponse } 
-                    : msg
-            ));
+            for await (const chunk of stream) {
+                fullResponse += chunk;
+                setMessages(prev => prev.map(msg => 
+                    msg.id === botMsgId 
+                        ? { ...msg, text: fullResponse } 
+                        : msg
+                ));
+            }
+        } catch (e: any) {
+            // Error handled in handleSendMessage mostly, but stream can throw
+            console.error("Chat Stream Error", e);
+            throw e;
         }
 
         setMessages(prev => prev.map(msg => 
@@ -119,6 +129,13 @@ export const useChatLogic = (language: Language, apiKey: string, silenceThreshol
             await executeSend(text, attachment, activeModel, currentHistory);
         } catch (error: any) {
             console.warn("Model failed:", error);
+            
+            // Critical Error Handling
+            if (error.message && (error.message.includes('429') || error.message.includes('403') || error.message.includes('400'))) {
+                let niceMsg = language === 'ru' ? "Ошибка API (Квоты или Ключ)" : "API Error (Quota or Key)";
+                addNotification(niceMsg, 'error', 5000);
+            }
+            
             handleErrorDisplay(error);
         } finally {
             setIsLoading(false);
@@ -184,7 +201,10 @@ export const useChatLogic = (language: Language, apiKey: string, silenceThreshol
             // START: Reset abort flag to allow new data
             abortProcessingRef.current = false;
             const success = await startRecording(handleAudioChunk);
-            if (!success) console.warn("Failed to start recording");
+            if (!success) {
+                console.warn("Failed to start recording");
+                addNotification(language === 'ru' ? "Ошибка микрофона" : "Mic Error", 'error');
+            }
         }
     };
 

@@ -1,4 +1,6 @@
 
+
+
 import { UIDictionary } from '../../types';
 
 export const UI_EN: UIDictionary = {
@@ -70,7 +72,7 @@ export const UI_EN: UIDictionary = {
     btnEnhance: "Improve Text",
     btnUndo: "Undo",
     btnRedo: "Redo",
-    btnSpeak: "Speak Text", // NEW
+    btnSpeak: "Speak Text", 
     
     // Status
     statusTyping: "Typing...",
@@ -111,6 +113,17 @@ export const UI_EN: UIDictionary = {
     settingsFinalization: "Idle Finalization (sec)",
     settingsEconomy: "Traffic Saver",
     settingsEconomyDesc: "Checks local dictionary first.",
+    settingsMonochrome: "Grey Only Mode",
+    settingsMonochromeDesc: "Disable text colors. Logic runs in background.",
+    settingsVoiceControl: "Voice Control (Hands-Free)",
+    settingsVoiceControlDesc: "Starts recording when you say the phrase",
+    settingsWakeWord: "Trigger Phrase",
+    vcActivated: "Voice Command Recognized",
+
+    // TIERS
+    settingsFreeTier: "Free Key (No Audio)",
+    settingsPaidTier: "Paid Key (Full Access)",
+    paidFeatureTooltip: "Only for Paid Tier keys",
 
     howItWorksTitle: "COLOR LEGEND",
     howItWorksDesc: "1. Grey: Input\n2. Yellow: Checking\n3. Red: Dict Error\n4. Blue: Verified (OK)\n5. Purple: AI Fixed\n6. Green: Final\n7. Orange: Dictation",
@@ -132,6 +145,8 @@ export const UI_EN: UIDictionary = {
     tooltipMin: "Minimize",
     tooltipMax: "Maximize",
     tooltipClose: "Close",
+    tooltipNoColors: "Mode: Gray Only",
+    tooltipColors: "Mode: Colorful",
     
     // Header Actions
     btnHeaderClear: "Clear All",
@@ -182,7 +197,7 @@ export const UI_EN: UIDictionary = {
     audioModelTitle: "Audio Model",
     modelFlash: "Gemini 2.5 Flash (Fast)",
     modelPro: "Gemini 2.5 Pro (Smart)",
-    ttsVoiceTitle: "TTS Voice", // NEW
+    ttsVoiceTitle: "TTS Voice", 
     
     // New Buttons
     btnHelp: "Help",
@@ -279,7 +294,7 @@ export const UI_EN: UIDictionary = {
     planClearDone: "Clear Done",
     planEmptyTasks: "No tasks for today",
     planEmptyNotes: "Your notes will appear here",
-    planNotePlaceholder: "Note text...",
+    planNotePlaceholder: "Note content...",
     planTaskPlaceholder: "New task...",
     planModeNote: "Mode: Notes",
     planModeTask: "Mode: Tasks"

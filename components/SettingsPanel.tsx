@@ -1,6 +1,8 @@
 
+
+
 import React, { useState, useEffect } from 'react';
-import { Keyboard, KeyRound, Mic, Brain, Leaf, ShieldAlert, Database, Check, X, Wand2, Activity, Scissors, ChevronDown, ChevronUp, BarChart2, Circle, AudioWaveform, Shield, ChevronLeft, Lock, Bug, TestTube, ArrowDownToLine, MoveVertical, Split, ExternalLink, LogOut, Save, Volume2 } from 'lucide-react';
+import { Keyboard, KeyRound, Mic, Brain, Leaf, ShieldAlert, Database, Check, X, Wand2, Activity, Scissors, ChevronDown, ChevronUp, BarChart2, Circle, AudioWaveform, Shield, ChevronLeft, Lock, Bug, TestTube, ArrowDownToLine, MoveVertical, Split, ExternalLink, LogOut, Save, Volume2, Palette, Command, AlertTriangle, CheckSquare, Square } from 'lucide-react';
 import { CorrectionSettings, Language } from '../types';
 import { getTranslation } from '../utils/i18n';
 import { MicTest } from './MicTest';
@@ -18,7 +20,8 @@ interface SettingsPanelProps {
   onSetLock?: (code: string) => void;
   onClose?: () => void;
   isVisible?: boolean;
-  onVerifyPin?: (code: string) => boolean; 
+  onVerifyPin?: (code: string) => boolean;
+  voiceStatus?: string; 
 }
 
 type PinFlow = 'none' | 'create' | 'verify_change' | 'verify_remove' | 'set_new';
@@ -34,7 +37,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onSetLock,
   onClose,
   isVisible = true,
-  onVerifyPin
+  onVerifyPin,
+  voiceStatus = 'idle'
 }) => {
   const t = getTranslation(language);
   const dictStats = getDictionaryStats();
@@ -130,6 +134,26 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
       }
   };
 
+  const getVoiceStatusColor = (status: string) => {
+      if (status === 'listening' || status === 'success') return 'text-emerald-400';
+      if (status === 'error_network' || status === 'error_denied') return 'text-red-400';
+      if (status === 'unsupported') return 'text-amber-400';
+      return 'text-slate-500';
+  };
+
+  const getVoiceStatusText = (status: string) => {
+      switch(status) {
+          case 'listening': return 'LISTENING';
+          case 'success': return 'TRIGGERED';
+          case 'error_network': return 'NETWORK ERROR';
+          case 'error_denied': return 'MIC BLOCKED';
+          case 'error_no_speech': return 'NO SPEECH';
+          case 'unsupported': return 'NOT SUPPORTED (Use Chrome)';
+          case 'idle': return 'IDLE';
+          default: return status.toUpperCase();
+      }
+  };
+
   return (
     <div className="bg-slate-900 border-b border-slate-800 shadow-xl z-40 w-full shrink-0 h-[85vh] md:max-h-[85vh] md:h-auto overflow-y-auto custom-scrollbar flex flex-col relative select-none">
         
@@ -204,13 +228,28 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         {/* TOP HEADER: API Key & Close Button */}
         <div className="sticky top-0 z-50 flex items-center justify-between px-4 md:px-6 py-4 bg-slate-900/95 backdrop-blur border-b border-slate-800 shrink-0">
              {/* Left: Change API Key */}
-             <button 
-                onClick={() => setShowKeyModal(true)}
-                className="flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-all active:scale-95 text-xs font-bold uppercase tracking-wider touch-manipulation"
-             >
-                <KeyRound className="w-3.5 h-3.5" />
-                {t.changeKey}
-             </button>
+             <div className="flex items-center gap-3">
+                 <button 
+                    onClick={() => setShowKeyModal(true)}
+                    className="flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-all active:scale-95 text-xs font-bold uppercase tracking-wider touch-manipulation"
+                 >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    {t.changeKey}
+                 </button>
+
+                 {/* FREE/PAID TIER TOGGLE */}
+                 <button 
+                    onClick={() => onUpdateSettings({ ...settings, isFreeTier: !settings.isFreeTier })}
+                    className={`flex items-center gap-2 px-3 py-2 border rounded-lg transition-all active:scale-95 text-xs font-bold uppercase tracking-wider touch-manipulation ${
+                        settings.isFreeTier 
+                        ? 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                        : 'bg-indigo-900/20 text-indigo-400 border-indigo-500/30 hover:bg-indigo-900/30'
+                    }`}
+                 >
+                    {settings.isFreeTier ? <Square className="w-3.5 h-3.5" /> : <CheckSquare className="w-3.5 h-3.5" />}
+                    {settings.isFreeTier ? (t.settingsFreeTier || "Free Key") : (t.settingsPaidTier || "Paid Key")}
+                 </button>
+             </div>
 
              {/* Right: Collapse/Close Icon */}
              <button 
@@ -301,6 +340,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                         </button>
                     </div>
 
+                    {/* Monochrome Mode Toggle */}
+                    <div className="flex items-start justify-between">
+                        <div className="mr-2">
+                            <label className="text-sm text-slate-400 flex items-center gap-2">
+                                <Palette className="w-3.5 h-3.5 text-slate-400" />
+                                {t.settingsMonochrome || "Grey Only Mode"}
+                            </label>
+                            <p className="text-[10px] text-slate-600 leading-tight mt-1">
+                                {t.settingsMonochromeDesc || "Disable text colors. Logic runs in background."}
+                            </p>
+                        </div>
+                        <button 
+                            onClick={() => onUpdateSettings({ ...settings, monochromeMode: !settings.monochromeMode })}
+                            className={`w-12 h-7 md:w-11 md:h-6 flex items-center rounded-full transition-colors duration-200 shrink-0 touch-manipulation ${settings.monochromeMode ? 'bg-slate-500' : 'bg-slate-700'}`}
+                        >
+                            <span className={`w-5 h-5 md:w-4 md:h-4 bg-white rounded-full shadow-md transform transition-transform duration-200 ${settings.monochromeMode ? 'translate-x-6 md:translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+
                     {/* Pause Delay Slider */}
                     <div>
                         <div className="flex justify-between mb-2">
@@ -348,8 +406,62 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
                 <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
                     
+                    {/* Voice Control Section (NEW) */}
+                    <div className="mb-4 pb-4 border-b border-slate-700/50">
+                        <div className="flex items-start justify-between mb-3">
+                            <div className="mr-2">
+                                <label className="text-sm text-slate-400 flex items-center gap-2">
+                                    <Command className="w-3.5 h-3.5 text-orange-400" />
+                                    {t.settingsVoiceControl || "Voice Control (Hands-Free)"}
+                                </label>
+                                <p className="text-[10px] text-slate-600 leading-tight mt-1">
+                                    {t.settingsVoiceControlDesc || "Starts recording when you say the phrase"}
+                                </p>
+                            </div>
+                            <button 
+                                onClick={() => onUpdateSettings({ ...settings, voiceControlEnabled: !settings.voiceControlEnabled })}
+                                disabled={settings.isFreeTier}
+                                className={`w-12 h-7 md:w-11 md:h-6 flex items-center rounded-full transition-colors duration-200 shrink-0 touch-manipulation ${settings.voiceControlEnabled ? 'bg-orange-600' : 'bg-slate-700'} ${settings.isFreeTier ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={settings.isFreeTier ? (t.paidFeatureTooltip || "Paid only") : ""}
+                            >
+                                <span className={`w-5 h-5 md:w-4 md:h-4 bg-white rounded-full shadow-md transform transition-transform duration-200 ${settings.voiceControlEnabled ? 'translate-x-6 md:translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                        </div>
+                        
+                        {settings.voiceControlEnabled && !settings.isFreeTier && (
+                            <div className="animate-in fade-in slide-in-from-top-2 space-y-2">
+                                <div>
+                                    <label className="text-xs text-slate-500 block mb-1">{t.settingsWakeWord || "Trigger Phrase"}</label>
+                                    <input 
+                                        type="text"
+                                        value={settings.wakeWord}
+                                        onChange={(e) => onUpdateSettings({ ...settings, wakeWord: e.target.value })}
+                                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-orange-500/50 placeholder:text-slate-600"
+                                        placeholder="start recording"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2 px-2 py-1 bg-slate-900/50 rounded border border-slate-800">
+                                    <div className={`w-2 h-2 rounded-full ${voiceStatus === 'listening' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-600'}`}></div>
+                                    <span className={`text-[10px] font-mono font-bold ${getVoiceStatusColor(voiceStatus)}`}>
+                                        {getVoiceStatusText(voiceStatus)}
+                                    </span>
+                                    {voiceStatus === 'unsupported' && (
+                                        <AlertTriangle className="w-3 h-3 text-amber-500 ml-auto" />
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                        {settings.isFreeTier && (
+                            <p className="text-[10px] text-red-400 italic flex items-center gap-1">
+                                <Lock className="w-3 h-3" />
+                                {t.paidFeatureTooltip || "Only for Paid Tier keys"}
+                            </p>
+                        )}
+                    </div>
+
                     {/* VISUALIZER SETTINGS (COLLAPSIBLE) */}
                     <div className="mb-4">
+                        {/* ... Existing Visualizer Config ... */}
                         <button 
                             onClick={() => setIsVisExpanded(!isVisExpanded)}
                             className="w-full flex items-center justify-between text-xs font-bold text-slate-300 uppercase tracking-wider hover:text-indigo-400 transition-colors mb-2"
@@ -361,9 +473,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             {isVisExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                         </button>
 
-                        {/* Collapsible Area */}
                         <div className={`space-y-4 overflow-hidden transition-all duration-300 ${isVisExpanded ? 'max-h-[700px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
-                            
+                            {/* ... (Rest of visualizer sliders preserved) ... */}
                             {/* Visualizer Style Selector */}
                             <div className="grid grid-cols-4 gap-2 mb-4">
                                 <button
@@ -551,9 +662,9 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                 </h3>
 
                 {/* Audio Model Switcher */}
-                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
+                <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50 relative">
                     <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">{t.audioModelTitle || "Dictation Model"}</label>
-                    <div className="flex gap-2 mb-4">
+                    <div className={`flex gap-2 mb-4 transition-opacity ${settings.isFreeTier ? 'opacity-50 pointer-events-none' : ''}`}>
                         <button
                             onClick={() => onUpdateSettings({ ...settings, audioModel: 'gemini-2.5-flash' })}
                             className={`flex-1 flex flex-col items-center justify-center p-3 rounded-lg border transition-all touch-manipulation ${
@@ -578,14 +689,22 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                             <span className="text-xs font-semibold">{t.modelPro}</span>
                         </button>
                     </div>
+                    {settings.isFreeTier && (
+                        <div className="absolute inset-0 flex items-center justify-center z-10">
+                            <span className="bg-slate-900/90 text-red-400 text-xs px-2 py-1 rounded border border-red-900/50 flex items-center gap-1">
+                                <Lock className="w-3 h-3" />
+                                {t.paidFeatureTooltip || "Paid Tier Only"}
+                            </span>
+                        </div>
+                    )}
 
                     {/* TTS Voice Selector */}
-                    <div className="pt-4 border-t border-slate-700/50">
+                    <div className="pt-4 border-t border-slate-700/50 relative">
                         <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block flex items-center gap-2">
                             <Volume2 className="w-3.5 h-3.5" />
                             {t.ttsVoiceTitle || "TTS Voice"}
                         </label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className={`grid grid-cols-2 gap-2 transition-opacity ${settings.isFreeTier ? 'opacity-50 pointer-events-none' : ''}`}>
                             {['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'].map((voice) => (
                                 <button
                                     key={voice}
@@ -653,8 +772,6 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
                 {/* PIN Management Section */}
                 <div className="space-y-2 mt-auto">
-                    
-                    {/* If Active Flow: Show PIN Input */}
                     {pinFlow !== 'none' ? (
                         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 animate-in fade-in zoom-in duration-300">
                              <div className="flex items-center justify-between mb-2">
@@ -687,10 +804,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                              {pinError && <p className="text-xs text-red-400 mt-1">{pinError}</p>}
                         </div>
                     ) : (
-                        // If No Active Flow: Show Buttons
                         <div className="space-y-2">
-                             
-                             {/* Condition: Create vs Change */}
                              {!hasLock ? (
                                 <button 
                                     onClick={() => setPinFlow('create')}
@@ -720,11 +834,10 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                              )}
                         </div>
                     )}
-
                 </div>
             </div>
 
         </div>
     </div>
   );
-};
+}

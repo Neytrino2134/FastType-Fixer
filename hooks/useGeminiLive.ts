@@ -1,5 +1,7 @@
+
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { useNotification } from '../contexts/NotificationContext';
 
 // Helper: Base64 Decode
 function decode(base64: string) {
@@ -56,6 +58,7 @@ async function decodeAudioData(
 }
 
 export const useGeminiLive = (apiKey: string) => {
+  const { addNotification } = useNotification();
   const [isLive, setIsLive] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -242,6 +245,7 @@ export const useGeminiLive = (apiKey: string) => {
                 onerror: (e) => {
                     console.error("Gemini Live Error", e);
                     setError("Connection lost");
+                    addNotification("Live Error: Connection lost or API issue", 'error');
                     stopLive();
                 }
             }
@@ -250,6 +254,11 @@ export const useGeminiLive = (apiKey: string) => {
         sessionPromiseRef.current = sessionPromise;
         sessionPromise.then(sess => {
             currentSessionRef.current = sess;
+        }).catch(err => {
+             console.error("Session promise failed:", err);
+             setError("Failed to connect");
+             addNotification("Live Connection Failed", 'error');
+             stopLive();
         });
 
         // 4. Stream Input Audio
@@ -271,10 +280,11 @@ export const useGeminiLive = (apiKey: string) => {
     } catch (e) {
         console.error("Failed to start Live session", e);
         setError("Microphone access failed or API error.");
+        addNotification("Failed to start Live. Check Mic/API.", 'error');
         setIsConnecting(false);
         stopLive();
     }
-  }, [apiKey, isLive, isConnecting, stopLive]);
+  }, [apiKey, isLive, isConnecting, stopLive, addNotification]);
 
   return {
     isLive,

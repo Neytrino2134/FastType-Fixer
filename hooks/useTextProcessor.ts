@@ -1,4 +1,5 @@
 
+
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { fixTyposOnly, finalizeText, fixAndFinalize } from '../services/geminiService';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
@@ -29,7 +30,7 @@ interface UseTextProcessorProps {
     finalizedSentences: Set<string>;
     addFinalizedSentence: (s: string) => void;
     addAiFixedSegment: (s: string) => void; 
-    unknownSegments: Set<string>; // NEW: Read access to determine if text is clean
+    unknownSegments: Set<string>;
     addUnknownSegments: (words: string[]) => void;
     saveCheckpoint: (text: string, committed: number, corrected: number, tags?: string[]) => void;
     saveCheckpoints: (snapshots: { text: string, committedLength: number, correctedLength: number, checkedLength?: number, tags: string[] }[]) => void;
@@ -37,6 +38,7 @@ interface UseTextProcessorProps {
     onStatusChange: (status: ProcessingStatus) => void;
     onAutoFormat: (text: string) => void; 
     workerRef: React.MutableRefObject<Worker | null>;
+    onFatalError: (msg: string) => void; // NEW: Callback to stop everything
 }
 
 export const useTextProcessor = ({
@@ -63,7 +65,8 @@ export const useTextProcessor = ({
     onStatsUpdate,
     onStatusChange,
     onAutoFormat,
-    workerRef
+    workerRef,
+    onFatalError
 }: UseTextProcessorProps) => {
     
     // Internal State Machine Locks
@@ -266,13 +269,16 @@ export const useTextProcessor = ({
                 }
             }
 
+            // Determine if we should run the check
             const isAtEnd = (checkedLen + chunkEnd) >= fullText.length;
             
-            // Only trigger check if we have enough words AND the end condition is met
-            // (Wait for long word or punctuation)
+            // Standard Condition: Wait for 3 words
             const isChunkReady = meaningfulWordsCount >= 3 && (cleanWordLocally(lastMeaningfulWord).length > 3 || endsWithPunctuation);
+            
+            // Manual Typing Condition: If we are at the end (stopped typing), allow checking even single words > 3 chars
+            const isManualReady = isAtEnd && meaningfulWordsCount >= 1 && cleanWordLocally(lastMeaningfulWord).length > 3;
 
-            if (chunkEnd > 0 && (isChunkReady || isAtEnd || endsWithPunctuation)) {
+            if (chunkEnd > 0 && (isChunkReady || isAtEnd || endsWithPunctuation || isManualReady)) {
                 const chunkToTest = greyZone.slice(0, chunkEnd);
                 await runDictionaryCheck(chunkToTest, checkedLen);
                 return;
@@ -332,7 +338,7 @@ export const useTextProcessor = ({
                 cleanup();
                 setCheckedLength(targetEnd);
                 resolve();
-            }, 2000);
+            }, 3000); // Increased timeout safety
 
             const cleanup = () => {
                 workerRef.current?.removeEventListener('message', handleWorkerMsg);
@@ -345,6 +351,15 @@ export const useTextProcessor = ({
     };
 
     // --- AI ACTIONS ---
+
+    const handleAiError = (e: any) => {
+        console.error("AI Processor Error:", e);
+        if (e.isFatal) {
+            onFatalError(e.message); // Trigger stop in useSmartEditor
+        } else {
+            onStatusChange('error');
+        }
+    };
 
     const runBulkFinalization = async (textChunk: string, startOffset: number) => {
         onStatusChange('ai_finalizing');
@@ -435,9 +450,8 @@ export const useTextProcessor = ({
                 }
                 onStatusChange('idle');
             }
-        } catch (e) {
-             console.error("Bulk finalize error", e);
-             onStatusChange('error');
+        } catch (e: any) {
+             handleAiError(e);
         } finally {
             setProcessingOverlay(null);
         }
@@ -503,11 +517,11 @@ export const useTextProcessor = ({
                     setCorrectedLength(startOffset + textChunk.length);
                 }
             }
-        } catch (e) {
+        } catch (e: any) {
             if (textRef.current.length >= startOffset + textChunk.length) {
                 setCorrectedLength(startOffset + textChunk.length);
             }
-            onStatusChange('error');
+            handleAiError(e);
         } finally {
             setProcessingOverlay(null);
         }
@@ -586,11 +600,11 @@ export const useTextProcessor = ({
                 onStatusChange('idle');
             }
 
-        } catch (e) {
+        } catch (e: any) {
              if (textRef.current.length >= startOffset + textChunk.length) {
                 setCommittedLength(startOffset + textChunk.length);
              }
-             onStatusChange('error');
+             handleAiError(e);
         } finally {
             setProcessingOverlay(null);
         }
@@ -635,15 +649,15 @@ export const useTextProcessor = ({
         isProcessingRef.current = true;
         try {
             if (performCycleRef.current) await performCycleRef.current();
-        } catch (e) {
+        } catch (e: any) {
             console.error("Processor Cycle Error:", e);
-            onStatusChange('error');
-            setTimeout(() => onStatusChange('idle'), 2000);
+            if (e.isFatal) onFatalError(e.message);
+            else onStatusChange('error');
         } finally {
             isProcessingRef.current = false;
         }
 
-    }, [settingsRef, statusRef, onStatusChange]);
+    }, [settingsRef, statusRef, onStatusChange, onFatalError]);
 
     useEffect(() => {
         processorIntervalRef.current = setInterval(processTick, 500);

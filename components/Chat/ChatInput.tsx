@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useCallback } from 'react';
-import { Send, Mic, Square, Paperclip, X, Image as ImageIcon, FileText } from 'lucide-react';
+import { Send, Mic, Square, Paperclip, X, Image as ImageIcon, FileText, Lock } from 'lucide-react';
 import { Attachment } from '../../types';
 
 interface ChatInputProps {
@@ -10,6 +11,7 @@ interface ChatInputProps {
   placeholder: string;
   value: string; // Controlled value
   onChange: (text: string) => void; // Controlled change handler
+  isFreeTier?: boolean; // NEW PROP
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({ 
@@ -19,7 +21,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     isLoading,
     placeholder,
     value,
-    onChange
+    onChange,
+    isFreeTier = true
 }) => {
   const [attachment, setAttachment] = useState<Attachment | undefined>(undefined);
   const [isDragging, setIsDragging] = useState(false);
@@ -213,14 +216,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             {/* Mic Button */}
             <button
-                onClick={onRecordToggle}
+                onClick={isFreeTier ? undefined : onRecordToggle}
+                disabled={isFreeTier}
                 className={`shrink-0 p-2.5 md:p-2 rounded-lg transition-all touch-manipulation ${
-                    isRecording 
-                        ? 'bg-red-500/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
-                        : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-900'
+                    isFreeTier
+                        ? 'opacity-50 cursor-not-allowed bg-slate-900 text-slate-600'
+                        : isRecording 
+                            ? 'bg-red-500/20 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
+                            : 'text-slate-500 hover:text-indigo-400 hover:bg-slate-900'
                 }`}
+                title={isFreeTier ? "Paid Tier only" : "Record"}
             >
-                {isRecording ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />}
+                {isFreeTier ? <Lock className="w-4 h-4" /> : (isRecording ? <Square className="w-5 h-5 fill-current" /> : <Mic className="w-5 h-5" />)}
             </button>
 
             {/* Send Button */}

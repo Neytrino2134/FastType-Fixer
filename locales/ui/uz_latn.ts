@@ -1,4 +1,6 @@
 
+
+
 import { UIDictionary } from '../../types';
 
 export const UI_UZ_LATN: UIDictionary = {
@@ -70,7 +72,7 @@ export const UI_UZ_LATN: UIDictionary = {
     btnEnhance: "Matnni yaxshilash",
     btnUndo: "Bekor qilish",
     btnRedo: "Qaytarish",
-    btnSpeak: "Matnni o'qish", // NEW
+    btnSpeak: "Matnni o'qish", 
     
     // Status
     statusTyping: "Yozilmoqda...",
@@ -111,6 +113,17 @@ export const UI_UZ_LATN: UIDictionary = {
     settingsFinalization: "Yakunlash vaqti (sek)",
     settingsEconomy: "Traffikni tejash",
     settingsEconomyDesc: "Avval lokal lug'atni tekshiradi.",
+    settingsMonochrome: "Kulrang rejim",
+    settingsMonochromeDesc: "Rangli matnni o'chirish. Mantiq fonda ishlaydi.",
+    settingsVoiceControl: "Ovozli boshqaruv",
+    settingsVoiceControlDesc: "Gapirish orqali yozishni boshlash",
+    settingsWakeWord: "Faollashtirish so'zi",
+    vcActivated: "Ovozli buyruq qabul qilindi",
+
+    // TIERS
+    settingsFreeTier: "Bepul Kalit (Ovozsiz)",
+    settingsPaidTier: "Pullik Kalit (To'liq)",
+    paidFeatureTooltip: "Faqat pullik kalitlar uchun",
 
     howItWorksTitle: "RANGLAR MA'NOSI",
     howItWorksDesc: "1. Kulrang: Kiritish\n2. Sariq: Tekshirish\n3. Qizil: Xato (Lug'atda yo'q)\n4. Ko'k: Tasdiqlandi (OK)\n5. Binafsha: AI tuzatdi\n6. Yashil: Yakuniy",
@@ -132,6 +145,8 @@ export const UI_UZ_LATN: UIDictionary = {
     tooltipMin: "Kichraytirish",
     tooltipMax: "Kattalashtirish",
     tooltipClose: "Yopish",
+    tooltipNoColors: "Rejim: Rangsiz (Kulrang)",
+    tooltipColors: "Rejim: Rangli",
     
     // Header Actions
     btnHeaderClear: "Hammasini o'chirish",
@@ -182,7 +197,7 @@ export const UI_UZ_LATN: UIDictionary = {
     audioModelTitle: "Audio Model",
     modelFlash: "Gemini 2.5 Flash (Tez)",
     modelPro: "Gemini 2.5 Pro (Aqlli)",
-    ttsVoiceTitle: "Ovoz (TTS)", // NEW
+    ttsVoiceTitle: "Ovoz (TTS)", 
     
     // New Buttons
     btnHelp: "Yordam",

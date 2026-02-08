@@ -16,7 +16,7 @@ const DEFAULT_SETTINGS: CorrectionSettings = {
   clipboardEnabled: true,
   silenceThreshold: 15,
   audioModel: 'gemini-2.5-flash',
-  ttsVoice: 'Puck', // Default Voice
+  ttsVoice: 'Puck', 
   economyMode: true,
   dictionaryCheck: true, 
   visualizerLowCut: 0,
@@ -26,7 +26,11 @@ const DEFAULT_SETTINGS: CorrectionSettings = {
   visualizerNorm: false,
   visualizerGravity: 2.0,
   visualizerMirror: true, 
-  developerMode: false
+  developerMode: false,
+  monochromeMode: false,
+  voiceControlEnabled: false, 
+  wakeWord: 'start recording',
+  isFreeTier: true // Default to Free Tier (Safest option)
 };
 
 export const useAppLogic = () => {
@@ -46,12 +50,14 @@ export const useAppLogic = () => {
   const [stats, setStats] = useState({ corrections: 0 });
   const [resetSignal, setResetSignal] = useState(0); 
   const [isPinned, setIsPinned] = useState(false); 
+  const [dictionariesLoaded, setDictionariesLoaded] = useState(false);
   
   // Configuration State (With Persistence)
   const [settings, setSettings] = useState<CorrectionSettings>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_SETTINGS);
       if (saved) {
+        // Merge with default to ensure new keys (like isFreeTier) exist
         return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
       }
     } catch (e) {
@@ -70,7 +76,7 @@ export const useAppLogic = () => {
   const [showClipboard, setShowClipboard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [showAudioArchive, setShowAudioArchive] = useState(false); // NEW
+  const [showAudioArchive, setShowAudioArchive] = useState(false);
   
   // Persistent Clipboard History
   const [clipboardHistory, setClipboardHistory] = useState<ClipboardItem[]>(() => {
@@ -82,8 +88,7 @@ export const useAppLogic = () => {
     }
   });
 
-  // Audio Archive State (In-Memory for now, or use IndexedDB in future for persistence)
-  // We don't persist heavy audio blobs to localStorage to avoid quota errors.
+  // Audio Archive State
   const [audioArchive, setAudioArchive] = useState<AudioArchiveItem[]>([]);
 
   // Save Clipboard to LocalStorage whenever it changes
@@ -125,6 +130,7 @@ export const useAppLogic = () => {
       }
 
       await Promise.all([minLoadTime, dictPromise]);
+      setDictionariesLoaded(true); 
       setAppState('welcome');
     };
 
@@ -186,7 +192,7 @@ export const useAppLogic = () => {
     localStorage.removeItem('fasttype_editor_state_v2');
     setSettings(DEFAULT_SETTINGS);
     localStorage.removeItem(STORAGE_KEY_SETTINGS);
-    setAudioArchive([]); // Wipe archive
+    setAudioArchive([]); 
     return true;
   }, []);
 
@@ -210,7 +216,6 @@ export const useAppLogic = () => {
   }, []);
 
   const toggleLanguage = useCallback(() => {
-    // Cycle: ru -> uz-latn -> uz-cyrl -> en -> ru
     setLanguage(prev => {
         if (prev === 'ru') return 'uz-latn';
         if (prev === 'uz-latn') return 'uz-cyrl';
@@ -283,9 +288,8 @@ export const useAppLogic = () => {
     setClipboardHistory([]);
   }, []);
 
-  // Audio Archive Actions
   const handleAddToAudioArchive = useCallback((item: AudioArchiveItem) => {
-      setAudioArchive(prev => [item, ...prev].slice(0, 20)); // Keep last 20 audio items
+      setAudioArchive(prev => [item, ...prev].slice(0, 20)); 
   }, []);
 
   const handleRemoveFromAudioArchive = useCallback((id: string) => {
@@ -311,16 +315,13 @@ export const useAppLogic = () => {
 
   const handleToggleProcessing = useCallback(() => {
     setSettings(prev => {
-        // Master Toggle Logic
         if (prev.enabled) {
-            // PAUSE
             setStatus('paused');
             return {
                 ...prev,
-                enabled: false // Explicitly disable to trigger "Paused" UI
+                enabled: false 
             };
         } else {
-            // RESUME (HYBRID: Preserve existing flags)
             setStatus('idle');
             return {
                 ...prev,
@@ -328,6 +329,16 @@ export const useAppLogic = () => {
             };
         }
     });
+  }, []);
+
+  // NEW: Force Free Tier (Used when quota is exceeded)
+  const handleForceFreeTier = useCallback(() => {
+      setSettings(prev => ({ 
+          ...prev, 
+          isFreeTier: true,
+          // Ensure processing remains enabled for text, but tier is locked
+          enabled: true 
+      }));
   }, []);
 
   const handleTogglePin = useCallback(() => {
@@ -346,14 +357,12 @@ export const useAppLogic = () => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Help
       if (e.code === 'F1') {
         e.preventDefault();
         toggleHelp();
         return;
       }
       
-      // Home / Exit
       if (e.code === 'Home') {
         const target = e.target as HTMLElement;
         const isInput = target.tagName === 'TEXTAREA' || target.tagName === 'INPUT' || target.isContentEditable;
@@ -364,7 +373,6 @@ export const useAppLogic = () => {
         }
       }
 
-      // Tab Switching (Ctrl + 1..4)
       if (e.ctrlKey || e.metaKey) {
           switch (e.code) {
               case 'Digit1':
@@ -386,7 +394,6 @@ export const useAppLogic = () => {
           }
       }
 
-      // Alt Hotkeys
       if (e.altKey) {
         switch (e.code) {
           case 'KeyS':
@@ -428,7 +435,8 @@ export const useAppLogic = () => {
       isLocked,
       hasLock: !!lockCode,
       currentTab,
-      isPinned 
+      isPinned,
+      dictionariesLoaded
     },
     actions: {
       setLanguage,
@@ -462,7 +470,8 @@ export const useAppLogic = () => {
       setCurrentTab,
       handleToggleProcessing,
       handleTogglePin,
-      handleWipeData
+      handleWipeData,
+      handleForceFreeTier // Export new action
     }
   };
 };

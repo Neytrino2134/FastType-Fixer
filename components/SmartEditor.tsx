@@ -1,6 +1,4 @@
 
-
-
 import React, { useEffect, useState, forwardRef, useImperativeHandle, useRef, useCallback } from 'react';
 import { ProcessingStatus, CorrectionSettings, Language } from '../types';
 import { useSmartEditor } from '../hooks/useSmartEditor';
@@ -10,6 +8,7 @@ import { HistoryPanel } from './HistoryPanel';
 import { useNotification } from '../contexts/NotificationContext';
 import { getTranslation } from '../utils/i18n';
 import { switchKeyboardLayout } from '../utils/textCleaner';
+import { ContextMenu } from './Editor/ContextMenu';
 
 interface SmartEditorProps {
   settings: CorrectionSettings;
@@ -28,6 +27,8 @@ interface SmartEditorProps {
   onHistoryUpdate: () => void; 
   showClipboard: boolean;
   onToggleClipboard: () => void;
+  dictionariesLoaded?: boolean;
+  onQuotaExceeded?: () => void; // New Prop
 }
 
 export interface SmartEditorHandle {
@@ -38,7 +39,8 @@ export interface SmartEditorHandle {
     clearAndPaste: () => Promise<void>; 
     fullWipe: () => void;
     getText: () => string;
-    switchLayout: () => void; // New method
+    switchLayout: () => void;
+    toggleRecording: () => void; // EXPOSED
 }
 
 export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((props, ref) => {
@@ -80,8 +82,15 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
     handleMediaFile, 
     toggleDevRecording,
     isDevRecording,
-    processingOverlay // Received from hook
-  } = useSmartEditor(props);
+    processingOverlay,
+    contextMenu,
+    handleRequestSuggestions,
+    handleSuggestionSelect,
+    handleCloseContextMenu
+  } = useSmartEditor({
+      ...props,
+      dictionariesLoaded: props.dictionariesLoaded || false
+  });
 
   const { addNotification } = useNotification();
   const t = getTranslation(props.language);
@@ -152,9 +161,63 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
       // If it's not an image, proceed with default behavior (text paste handled by textarea)
   }, [props.language, addNotification]);
 
+  // --- Context Menu Handlers ---
+
+  const handleCtxCopy = async () => {
+      if (!contextMenu) return;
+      const { targetWord } = contextMenu;
+      try {
+          await safeWriteClipboard(targetWord);
+          addNotification(props.language === 'ru' ? "Скопировано" : "Copied", 'success');
+          handleCloseContextMenu();
+      } catch (e) {
+          addNotification(props.language === 'ru' ? "Ошибка копирования" : "Copy failed", 'error');
+      }
+  };
+
+  const handleCtxCut = async () => {
+      if (!contextMenu) return;
+      const { targetWord, rangeStart, rangeEnd } = contextMenu;
+      try {
+          await safeWriteClipboard(targetWord);
+          const newText = text.substring(0, rangeStart) + text.substring(rangeEnd);
+          setFullText(newText);
+          handleCloseContextMenu();
+          addNotification(props.language === 'ru' ? "Вырезано" : "Cut", 'success');
+      } catch (e) {
+          addNotification(props.language === 'ru' ? "Ошибка" : "Error", 'error');
+      }
+  };
+
+  const handleCtxPaste = async () => {
+      if (!contextMenu) return;
+      const { rangeStart, rangeEnd } = contextMenu;
+      try {
+          const clipText = await safeReadClipboard();
+          if (clipText) {
+              const newText = text.substring(0, rangeStart) + clipText + text.substring(rangeEnd);
+              setFullText(newText);
+              handleCloseContextMenu();
+          }
+      } catch (e) {
+          addNotification(props.language === 'ru' ? "Ошибка вставки" : "Paste failed", 'error');
+      }
+  };
+
+  const handleCtxSwitchLayout = () => {
+      if (!contextMenu) return;
+      const { targetWord, rangeStart, rangeEnd } = contextMenu;
+      const converted = switchKeyboardLayout(targetWord);
+      const newText = text.substring(0, rangeStart) + converted + text.substring(rangeEnd);
+      setFullText(newText);
+      handleCloseContextMenu();
+      addNotification(props.language === 'ru' ? "Раскладка изменена" : "Layout switched", 'success');
+  };
+
   // Expose methods to parent
   useImperativeHandle(ref, () => ({
       getText: () => text,
+      toggleRecording: () => toggleRecording(), // EXPOSED FOR VOICE CONTROL
       clear: () => {
           setFullText('');
       },
@@ -338,6 +401,21 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
   return (
     <div className="relative w-full h-full flex flex-col overflow-hidden">
       
+      {contextMenu && (
+          <ContextMenu 
+              x={contextMenu.x}
+              y={contextMenu.y}
+              suggestions={contextMenu.suggestions}
+              originalWord={contextMenu.targetWord}
+              onSelect={handleSuggestionSelect}
+              onClose={handleCloseContextMenu}
+              onCopy={handleCtxCopy}
+              onCut={handleCtxCut}
+              onPaste={handleCtxPaste}
+              onSwitchLayout={handleCtxSwitchLayout}
+          />
+      )}
+
       <EditorSurface
         text={text}
         committedLength={committedLength}
@@ -373,7 +451,9 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         visualizerGravity={props.settings.visualizerGravity}
         visualizerMirror={props.settings.visualizerMirror}
         onDropFile={handleMediaFile} 
-        processingOverlay={processingOverlay} 
+        processingOverlay={processingOverlay}
+        monochromeMode={props.settings.monochromeMode} 
+        onRequestSuggestions={handleRequestSuggestions}
       />
 
       <EditorToolbar
@@ -400,6 +480,7 @@ export const SmartEditor = forwardRef<SmartEditorHandle, SmartEditorProps>((prop
         showClipboard={props.showClipboard}
         onToggleClipboard={props.onToggleClipboard}
         isRecording={isRecording} 
+        isFreeTier={props.settings.isFreeTier} // PASS DOWN THE FLAG
       />
 
       <HistoryPanel 

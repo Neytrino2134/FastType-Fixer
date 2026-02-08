@@ -1,12 +1,15 @@
 
+
+
 import React, { useEffect } from 'react';
 import { Language, CorrectionSettings, Tab } from '../../types';
 import { useChatLogic } from '../../hooks/useChatLogic';
 import { ChatBubble } from './ChatBubble';
 import { ChatInput } from './ChatInput';
-import { Volume2, VolumeX, Trash2, Bot, AudioWaveform, PhoneOff, Mic, Sparkles, ClipboardList } from 'lucide-react';
+import { Volume2, VolumeX, Trash2, Bot, AudioWaveform, PhoneOff, Mic, Sparkles, ClipboardList, Lock } from 'lucide-react';
 import { VisualizerCanvas } from '../Editor/VisualizerCanvas';
 import { getTranslation } from '../../utils/i18n';
+import { Tooltip } from '../Tooltip';
 
 interface ChatInterfaceProps {
   language: Language;
@@ -18,6 +21,7 @@ interface ChatInterfaceProps {
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ language, apiKey, settings, transferRequest, onToggleClipboard }) => {
   const silenceThreshold = settings?.silenceThreshold || 20;
+  const isFreeTier = settings?.isFreeTier ?? true; // Safe default
   const tLoc = getTranslation(language);
 
   const {
@@ -139,19 +143,22 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ language, apiKey, 
                 <span className="text-xs font-medium text-slate-400">{modelNameDisplay}</span>
             </div>
             <div className="flex items-center gap-2">
-                <button 
-                    onClick={toggleLiveMode}
-                    disabled={isLiveConnecting}
-                    className={`flex items-center gap-2 px-3 py-1 rounded-md transition-all ${
-                        isLiveConnecting 
-                            ? 'bg-indigo-900/50 text-indigo-400' 
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/20'
-                    }`}
-                    title="Live Voice Chat"
-                >
-                    <AudioWaveform className="w-3.5 h-3.5" />
-                    <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">Live</span>
-                </button>
+                <Tooltip content={isFreeTier ? (tLoc.paidFeatureTooltip || "Paid Tier Only") : "Live Voice Chat"}>
+                    <button 
+                        onClick={isFreeTier ? undefined : toggleLiveMode}
+                        disabled={isLiveConnecting || isFreeTier}
+                        className={`flex items-center gap-2 px-3 py-1 rounded-md transition-all ${
+                            isFreeTier
+                                ? 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-50'
+                                : isLiveConnecting 
+                                    ? 'bg-indigo-900/50 text-indigo-400' 
+                                    : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-900/20'
+                        }`}
+                    >
+                        {isFreeTier ? <Lock className="w-3.5 h-3.5" /> : <AudioWaveform className="w-3.5 h-3.5" />}
+                        <span className="text-xs font-bold uppercase tracking-wider hidden sm:inline">Live</span>
+                    </button>
+                </Tooltip>
 
                 <div className="w-px h-4 bg-slate-800 mx-1"></div>
 
@@ -228,6 +235,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ language, apiKey, 
                 placeholder={t.placeholder}
                 value={inputText}
                 onChange={setInputText}
+                isFreeTier={isFreeTier}
             />
         </div>
         

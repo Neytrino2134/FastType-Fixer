@@ -1,5 +1,6 @@
 
-import { GoogleGenAI, Modality } from "@google/genai";
+
+import { GoogleGenAI, Modality, GenerateContentResponse } from "@google/genai";
 import { Language } from "../types";
 import { getPrompts } from "../utils/i18n";
 import { cleanAudioHallucinations, removeFillers, cleanGeminiResponse } from "../utils/textCleaner";
@@ -14,6 +15,55 @@ export const setGeminiApiKey = (key: string) => {
 if (process.env.API_KEY) {
   setGeminiApiKey(process.env.API_KEY);
 }
+
+// --- ERROR HANDLING HELPER ---
+
+class AppError extends Error {
+    code: string;
+    isFatal: boolean;
+    
+    constructor(message: string, code: string, isFatal: boolean = false) {
+        super(message);
+        this.code = code;
+        this.isFatal = isFatal;
+    }
+}
+
+const parseGeminiError = (error: any, language: Language): AppError => {
+    const msg = error.message || error.toString();
+    const isRu = language === 'ru' || language === 'uz-cyrl'; // Treat Uzbek Cyrillic like Ru for tech errors roughly, or customize
+    
+    // 400: Bad Request (Invalid API Key often comes as 400 with specific text in some SDK versions, or 403)
+    if (msg.includes('400') || msg.includes('INVALID_ARGUMENT')) {
+        if (msg.includes('API key')) {
+             return new AppError(isRu ? "Неверный API ключ" : "Invalid API Key", 'KEY_INVALID', true);
+        }
+        return new AppError(isRu ? "Ошибка запроса (400)" : "Bad Request (400)", 'BAD_REQUEST', false);
+    }
+
+    // 401/403: Permission / Auth
+    if (msg.includes('401') || msg.includes('403') || msg.includes('PERMISSION_DENIED')) {
+        return new AppError(isRu ? "Ошибка доступа: Проверьте API ключ" : "Access Denied: Check API Key", 'KEY_PERMS', true);
+    }
+
+    // 429: Quota
+    if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Too Many Requests')) {
+        return new AppError(isRu ? "Лимит квоты исчерпан (429)" : "Quota Exceeded (429)", 'QUOTA', true);
+    }
+
+    // 5xx: Server
+    if (msg.includes('500') || msg.includes('503') || msg.includes('INTERNAL')) {
+        return new AppError(isRu ? "Ошибка сервера Google" : "Google Server Error", 'SERVER', false);
+    }
+
+    // Network
+    if (msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')) {
+        return new AppError(isRu ? "Нет соединения с интернетом" : "No Internet Connection", 'NETWORK', true);
+    }
+
+    // Generic
+    return new AppError(isRu ? "Ошибка API" : "API Error", 'UNKNOWN', false);
+};
 
 // --- AUDIO HELPERS ---
 
@@ -46,11 +96,19 @@ async function decodeAudioData(
   return buffer;
 }
 
+// Helper: Timeout Wrapper for API calls
+const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("TIMEOUT")), ms);
+        promise.then(
+            (res) => { clearTimeout(timer); resolve(res); },
+            (err) => { clearTimeout(timer); reject(err); }
+        );
+    });
+};
+
 // --- SERVICES ---
 
-/**
- * Generates speech, plays it immediately, and returns the base64 string for archiving.
- */
 export const speakText = async (text: string, voiceName: string): Promise<string | null> => {
     if (!ai) throw new Error("API Key not set");
     if (!text || !text.trim()) return null;
@@ -84,17 +142,16 @@ export const speakText = async (text: string, voiceName: string): Promise<string
             outputNode.connect(outputAudioContext.destination);
             source.start();
 
-            // Return the base64 data for archiving
             return base64Audio;
         }
         return null;
     } catch (error) {
         console.error("TTS Error:", error);
-        throw error;
+        // Throw simple error for UI to catch
+        throw new Error("TTS Failed"); 
     }
 };
 
-// STAGE 1: Fix Typos Only (Grey -> Orange)
 export const fixTyposOnly = async (text: string, language: Language): Promise<string> => {
   if (!text || text.trim().length === 0) return text;
   if (!ai) return text;
@@ -102,30 +159,27 @@ export const fixTyposOnly = async (text: string, language: Language): Promise<st
   const prompts = getPrompts(language);
 
   try {
-    const response = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: text,
       config: {
         systemInstruction: prompts.fixTypos,
-        // Increased from 0.1 to 0.2 to allow slight flexibility for typo guessing
         temperature: 0.2, 
         maxOutputTokens: 2048,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },
     });
 
+    const response = await withTimeout(call, 15000, "Gemini Timeout") as GenerateContentResponse;
     let result = response.text?.trim() || text;
-    // Strict cleaning of reasoning artifacts
     result = cleanGeminiResponse(result);
     return result;
-  } catch (error) {
-    console.error("Gemini Typo Fix Error:", error);
-    return text;
+  } catch (error: any) {
+    if (error.message === 'TIMEOUT') return text; // Silent fail on timeout
+    throw parseGeminiError(error, language); // Throw fatal errors
   }
 };
 
-// STAGE 2: Finalize Text (Orange -> Green)
-// Adds punctuation, capitalization, formatting AND removes fillers
 export const finalizeText = async (text: string, language: Language): Promise<string> => {
   if (!text || text.trim().length === 0) return text;
   if (!ai) return text;
@@ -133,33 +187,28 @@ export const finalizeText = async (text: string, language: Language): Promise<st
   const prompts = getPrompts(language);
 
   try {
-    const response = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: text,
       config: {
         systemInstruction: prompts.finalize,
-        // Lowered temperature to 0.1 to discourage creative "options" response
         temperature: 0.1, 
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },
     });
 
+    const response = await withTimeout(call, 20000, "Gemini Timeout") as GenerateContentResponse;
     let result = response.text?.trim() || text;
-    
-    // Post-process: Double check for stubborn fillers via code logic
     result = removeFillers(result, language);
     result = cleanGeminiResponse(result);
-
     return result;
-  } catch (error) {
-    console.error("Gemini Finalize Error:", error);
-    return text;
+  } catch (error: any) {
+    if (error.message === 'TIMEOUT') return text;
+    throw parseGeminiError(error, language);
   }
 };
 
-// STAGE 3 (Combined): Fix & Finalize (Grey -> Green in one go)
-// Used for large text pastes, dictation, or bulk edits
 export const fixAndFinalize = async (text: string, language: Language): Promise<string> => {
   if (!text || text.trim().length === 0) return text;
   if (!ai) return text;
@@ -167,34 +216,26 @@ export const fixAndFinalize = async (text: string, language: Language): Promise<
   const prompts = getPrompts(language);
 
   try {
-    const response = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: text,
       config: {
-        systemInstruction: prompts.combined, // Use combined system instruction
-        // Lowered temperature to 0.1 for strict output
+        systemInstruction: prompts.combined,
         temperature: 0.1, 
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },
     });
 
+    const response = await withTimeout(call, 25000, "Gemini Timeout") as GenerateContentResponse;
     let result = response.text?.trim() || text;
-    
-    // Clean fillers
     result = removeFillers(result, language);
     result = cleanGeminiResponse(result);
-
     return result;
-  } catch (error) {
-    console.error("Gemini Combined Fix Error:", error);
-    return text;
+  } catch (error: any) {
+    if (error.message === 'TIMEOUT') return text;
+    throw parseGeminiError(error, language);
   }
-};
-
-// Legacy/Full correction wrapper (used for Enhance button)
-export const correctTextSegment = async (text: string, language: Language): Promise<string> => {
-  return fixTyposOnly(text, language);
 };
 
 export const enhanceFullText = async (text: string, language: Language): Promise<string> => {
@@ -204,25 +245,25 @@ export const enhanceFullText = async (text: string, language: Language): Promise
   const prompts = getPrompts(language);
 
   try {
-    const response = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: text,
       config: {
         systemInstruction: prompts.enhance,
-        // Strict low temperature
         temperature: 0.1, 
         maxOutputTokens: 8192,
         thinkingConfig: { thinkingBudget: 0 } as any,
       },
     });
     
+    const response = await withTimeout(call, 25000, "Gemini Timeout") as GenerateContentResponse;
     let result = response.text || text;
     result = removeFillers(result, language);
     result = cleanGeminiResponse(result);
     return result;
-  } catch (error) {
-    console.error("Gemini Enhancement Error:", error);
-    return text;
+  } catch (error: any) {
+    if (error.message === 'TIMEOUT') return text;
+    throw parseGeminiError(error, language);
   }
 };
 
@@ -245,15 +286,11 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
   const prompts = getPrompts(language);
 
   try {
-    // Basic validation
     if (!base64Audio || base64Audio.length < 100) {
-        console.warn("Audio chunk too small, skipping.");
         return "";
     }
 
-    console.log(`Sending to Gemini [${modelName}]: ${mimeType}, size: ${Math.round(base64Audio.length/1024)}KB`);
-
-    const response = await ai.models.generateContent({
+    const call = ai.models.generateContent({
       model: modelName,
       contents: {
         parts: [
@@ -271,18 +308,14 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
       },
     });
 
-    let result = response.text || "";
-    console.log("Raw Transcription:", result);
+    const response = await withTimeout(call, 15000, "Gemini Transcription Timeout") as GenerateContentResponse;
 
-    // 1. Clean Hallucinations immediately
+    let result = response.text || "";
     result = cleanAudioHallucinations(result, language);
     
-    // If cleaning resulted in empty string, stop here
     if (!result) return "";
 
     const lower = result.toLowerCase().trim();
-    
-    // Filter common hallucinations where model describes its own job
     if (
         lower.includes("эксперт по транскрибации") || 
         lower.includes("expert transcriber") ||
@@ -294,10 +327,9 @@ export const transcribeAudio = async (base64Audio: string, mimeType: string, lan
     if (isRepetitive(result)) return "";
 
     return result;
-  } catch (error) {
-    console.error("Gemini Transcription Error:", error);
-    // Return empty string on error so the app doesn't crash, just ignores the chunk
-    return "";
+  } catch (error: any) {
+    if (error.message === 'TIMEOUT') return "";
+    throw parseGeminiError(error, language);
   }
 };
 
@@ -307,10 +339,8 @@ export const recognizeTextFromImage = async (base64Image: string, mimeType: stri
   const prompts = getPrompts(language);
 
   try {
-    console.log(`Sending Image to Gemini [OCR]: ${mimeType}, size: ${Math.round(base64Image.length/1024)}KB`);
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Using flash for fast OCR
+    const call = ai.models.generateContent({
+      model: 'gemini-2.5-flash', 
       contents: {
         parts: [
           {
@@ -323,17 +353,16 @@ export const recognizeTextFromImage = async (base64Image: string, mimeType: stri
       },
       config: {
         systemInstruction: prompts.ocr,
-        temperature: 0.1, // Very low temp for exact text extraction
+        temperature: 0.1, 
       },
     });
 
+    const response = await withTimeout(call, 20000, "OCR Timeout") as GenerateContentResponse;
     let result = response.text || "";
-    // Basic cleaning of OCR artifacts if needed, but usually OCR should be raw
     result = cleanGeminiResponse(result);
-    
     return result;
-  } catch (error) {
-    console.error("Gemini OCR Error:", error);
-    return "";
+  } catch (error: any) {
+    if (error.message === 'TIMEOUT') return "";
+    throw parseGeminiError(error, language);
   }
 };

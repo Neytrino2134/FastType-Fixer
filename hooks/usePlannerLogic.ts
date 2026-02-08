@@ -44,18 +44,25 @@ export const usePlannerLogic = (apiKey: string, language: Language, silenceThres
 
     // --- NOTES CRUD ---
     const addNote = useCallback((text: string = '', title: string = '') => {
+        // Auto-generate title if missing
+        const noteTitle = title || `Note ${notes.length + 1}`;
+        
         const newNote: PlannerNote = {
             id: Date.now().toString() + Math.random(),
-            title: title,
+            title: noteTitle,
             content: text,
             timestamp: Date.now(),
             color: 'yellow' // Default
         };
         setNotes(prev => [newNote, ...prev]);
-    }, []);
+    }, [notes.length]); // Updated dependency to include notes.length
 
     const updateNote = useCallback((id: string, content: string, title?: string) => {
         setNotes(prev => prev.map(n => n.id === id ? { ...n, content, title: title ?? n.title } : n));
+    }, []);
+
+    const updateNoteImage = useCallback((id: string, imageData: string) => {
+        setNotes(prev => prev.map(n => n.id === id ? { ...n, imageData } : n));
     }, []);
 
     const deleteNote = useCallback((id: string) => {
@@ -140,6 +147,7 @@ export const usePlannerLogic = (apiKey: string, language: Language, silenceThres
         autoStopCountdown,
         addNote,
         updateNote,
+        updateNoteImage,
         deleteNote,
         setNoteColor,
         addTask,

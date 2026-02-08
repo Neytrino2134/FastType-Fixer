@@ -1,12 +1,13 @@
 
+
 import React, { useState } from 'react';
-import { Language } from '../../types';
+import { Language, CorrectionSettings } from '../../types';
 import { usePlannerLogic } from '../../hooks/usePlannerLogic';
 import { getTranslation } from '../../utils/i18n';
 import { NoteCard } from './NoteCard';
 import { TaskItem } from './TaskItem';
 import { VisualizerCanvas } from '../Editor/VisualizerCanvas';
-import { Plus, CheckCircle2, Mic, StickyNote, ListTodo, Copy, Trash2, Loader2, ClipboardList } from 'lucide-react';
+import { Plus, CheckCircle2, Mic, StickyNote, ListTodo, Loader2, ClipboardList, Lock } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 import { Tooltip } from '../Tooltip';
 
@@ -14,11 +15,13 @@ interface PlannerInterfaceProps {
     language: Language;
     apiKey: string;
     onToggleClipboard?: () => void;
+    settings?: CorrectionSettings;
 }
 
-export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, apiKey, onToggleClipboard }) => {
+export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, apiKey, onToggleClipboard, settings }) => {
     const tLoc = getTranslation(language);
     const { addNotification } = useNotification();
+    const isFreeTier = settings?.isFreeTier ?? true;
     
     const {
         notes,
@@ -31,6 +34,7 @@ export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, ap
         autoStopCountdown,
         addNote,
         updateNote,
+        updateNoteImage,
         deleteNote,
         setNoteColor,
         addTask,
@@ -65,12 +69,6 @@ export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, ap
         }
     };
 
-    const copyAllNotes = () => {
-        const text = notes.map(n => `[${n.title || 'Note'}] ${n.content}`).join('\n\n');
-        navigator.clipboard.writeText(text);
-        addNotification(tLoc.clipboardCopy + "!", 'success');
-    };
-
     return (
         <div className="flex flex-col h-full w-full bg-slate-900 overflow-hidden relative select-none">
             
@@ -98,16 +96,6 @@ export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, ap
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <button 
-                        onClick={() => addNote()}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all shadow-lg active:scale-95"
-                    >
-                        <Plus className="w-3.5 h-3.5" />
-                        {t.newNote}
-                    </button>
-                    
-                    <div className="w-px h-5 bg-slate-700 mx-1"></div>
-
                     {onToggleClipboard && (
                         <Tooltip content={tLoc.clipboardTitle || "Clipboard"} side="bottom">
                             <button 
@@ -118,13 +106,9 @@ export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, ap
                             </button>
                         </Tooltip>
                     )}
-
-                    <Tooltip content="Copy Notes" side="bottom">
-                        <button onClick={copyAllNotes} className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
-                            <Copy className="w-4 h-4" />
-                        </button>
-                    </Tooltip>
                     
+                    <div className="w-px h-5 bg-slate-700 mx-1"></div>
+
                     <Tooltip content={t.clearDone} side="bottom">
                         <button onClick={clearCompletedTasks} className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800">
                             <CheckCircle2 className="w-4 h-4" />
@@ -138,25 +122,36 @@ export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, ap
                 
                 {/* LEFT: NOTES GRID */}
                 <div className="w-1/2 p-4 overflow-y-auto custom-scrollbar border-r border-slate-800/50 bg-slate-900/50">
-                    {notes.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center opacity-30 text-slate-400">
-                            <StickyNote className="w-12 h-12 mb-2" />
-                            <span className="text-sm">{t.emptyNotes}</span>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-20">
-                            {notes.map(note => (
-                                <NoteCard 
-                                    key={note.id} 
-                                    note={note} 
-                                    onUpdate={updateNote}
-                                    onDelete={deleteNote}
-                                    onColorChange={setNoteColor}
-                                    placeholder={t.notePlace}
-                                />
-                            ))}
-                        </div>
-                    )}
+                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pb-20">
+                        {/* BIG ADD BUTTON CARD */}
+                        <button 
+                            onClick={() => addNote()}
+                            className="
+                                min-h-[180px] rounded-xl border-2 border-dashed border-slate-700 hover:border-indigo-500/50 bg-slate-800/30 hover:bg-slate-800/60
+                                flex flex-col items-center justify-center gap-3 transition-all duration-300 group
+                            "
+                        >
+                            <div className="p-3 rounded-full bg-slate-800 group-hover:bg-indigo-600 text-slate-400 group-hover:text-white transition-colors shadow-lg">
+                                <Plus className="w-6 h-6" />
+                            </div>
+                            <span className="text-xs font-bold text-slate-500 group-hover:text-indigo-300 tracking-wider uppercase">
+                                {t.newNote}
+                            </span>
+                        </button>
+
+                        {/* Note Cards */}
+                        {notes.map(note => (
+                            <NoteCard 
+                                key={note.id} 
+                                note={note} 
+                                onUpdate={updateNote}
+                                onUpdateImage={updateNoteImage}
+                                onDelete={deleteNote}
+                                onColorChange={setNoteColor}
+                                placeholder={t.notePlace}
+                            />
+                        ))}
+                    </div>
                 </div>
 
                 {/* RIGHT: TASK LIST */}
@@ -242,23 +237,27 @@ export const PlannerInterface: React.FC<PlannerInterfaceProps> = ({ language, ap
                     </div>
 
                     {/* Mic Button */}
-                    <button
-                        onClick={toggleDictation}
-                        disabled={isAnalyzing && !isRecording}
-                        className={`
-                            w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300 shadow-lg border-2
-                            ${isRecording 
-                                ? 'bg-red-500 border-red-400 text-white scale-110 shadow-red-500/40' 
-                                : 'bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600 hover:border-slate-500'
-                            }
-                        `}
-                    >
-                        {isRecording ? (
-                            <div className="w-4 h-4 bg-white rounded-sm animate-pulse" />
-                        ) : (
-                            <Mic className="w-6 h-6" />
-                        )}
-                    </button>
+                    <Tooltip content={isFreeTier ? (tLoc.paidFeatureTooltip || "Paid Tier Only") : "Dictate"}>
+                        <button
+                            onClick={isFreeTier ? undefined : toggleDictation}
+                            disabled={(isAnalyzing && !isRecording) || isFreeTier}
+                            className={`
+                                w-12 h-12 flex items-center justify-center rounded-full transition-all duration-300 shadow-lg border-2
+                                ${isFreeTier 
+                                    ? 'bg-slate-800 border-slate-700 text-slate-600 cursor-not-allowed opacity-70' 
+                                    : isRecording 
+                                        ? 'bg-red-500 border-red-400 text-white scale-110 shadow-red-500/40' 
+                                        : 'bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600 hover:border-slate-500'
+                                }
+                            `}
+                        >
+                            {isFreeTier ? <Lock className="w-5 h-5" /> : isRecording ? (
+                                <div className="w-4 h-4 bg-white rounded-sm animate-pulse" />
+                            ) : (
+                                <Mic className="w-6 h-6" />
+                            )}
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
 

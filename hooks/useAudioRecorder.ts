@@ -13,6 +13,24 @@ interface AudioRecorderHook {
   autoStopCountdown: number | null; // 5, 4, 3, 2, 1 or null
 }
 
+// Helper to play sounds safely
+const playMicSound = (type: 'on' | 'off') => {
+    const filename = type === 'on' ? 'mic_on' : 'mic_off';
+    const basePath = `./sounds/misc/${filename}`;
+    
+    const audio = new Audio(`${basePath}.mp3`);
+    audio.volume = 0.4;
+    
+    // Try playing MP3, fallback to WAV, silence on error
+    audio.play().catch(() => {
+        const audioWav = new Audio(`${basePath}.wav`);
+        audioWav.volume = 0.4;
+        audioWav.play().catch(() => {
+            // Files likely missing, ignore
+        });
+    });
+};
+
 export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRecorderHook => {
   const [isRecording, setIsRecording] = useState(false);
   const [autoStopCountdown, setAutoStopCountdown] = useState<number | null>(null);
@@ -61,8 +79,6 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
     }
 
     // 3. Stop Recorder
-    // NOTE: We do NOT clear audioChunksRef here anymore. 
-    // We let mediaRecorder.onstop handle the final data flush.
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
           mediaRecorderRef.current.stop();
@@ -156,7 +172,6 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
 
         mediaRecorder.onstop = () => {
           // Process if data exists.
-          // REMOVED check for isRecordingRef.current to allow processing of final chunk after stop.
           if (audioChunksRef.current.length > 0) {
               const mimeType = mediaRecorder.mimeType || 'audio/webm';
               const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -186,6 +201,12 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
       streamRef.current = stream;
 
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      
+      // CRITICAL FIX FOR WINDOWS: Resume context explicitly
+      if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+      }
+      
       audioContextRef.current = audioCtx;
       
       const analyser = audioCtx.createAnalyser();
@@ -204,6 +225,9 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
 
       startMediaRecorder(stream);
       
+      // Play Start Sound
+      playMicSound('on');
+
       isRecordingRef.current = true;
       setIsRecording(true);
       silenceStartRef.current = Date.now();
@@ -279,6 +303,10 @@ export const useAudioRecorder = (silenceThresholdSetting: number = 25): AudioRec
   }, [silenceThresholdSetting, cleanup]); 
 
   const stopRecording = useCallback(async (): Promise<void> => {
+    // Only play stop sound if we were actually recording
+    if (isRecordingRef.current) {
+        playMicSound('off');
+    }
     cleanup();
   }, [cleanup]);
 

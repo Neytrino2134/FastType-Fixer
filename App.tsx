@@ -1,12 +1,10 @@
 
-
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { SmartEditor, SmartEditorHandle } from './components/SmartEditor';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { LoadingScreen } from './components/LoadingScreen';
 import { ClipboardHistory } from './components/ClipboardHistory';
-import { AudioArchive } from './components/AudioArchive'; // NEW
+import { AudioArchive } from './components/AudioArchive'; 
 import { AppHeader } from './components/AppHeader';
 import { SettingsPanel } from './components/SettingsPanel';
 import { NotificationSystem } from './components/NotificationSystem';
@@ -19,6 +17,7 @@ import { getTranslation } from './utils/i18n';
 import { Tab } from './types';
 import { speakText } from './services/geminiService';
 import { useNotification } from './contexts/NotificationContext';
+import { useVoiceControl } from './hooks/useVoiceControl'; 
 
 export default function App() {
   const { state, actions } = useAppLogic();
@@ -79,6 +78,21 @@ export default function App() {
   
   // Reference to Editor for imperative actions (Clear, Copy, Paste, Wipe)
   const editorRef = useRef<SmartEditorHandle>(null);
+
+  // --- VOICE CONTROL (LIFTED TO APP LEVEL) ---
+  const { status: voiceStatus } = useVoiceControl(
+      state.settings.voiceControlEnabled && state.appState === 'app',
+      state.status === 'recording' || state.status === 'transcribing',
+      state.settings.wakeWord || 'start recording',
+      state.language,
+      () => {
+          // Trigger: Start Recording via Editor
+          if (editorRef.current) {
+              editorRef.current.toggleRecording();
+              addNotification(t.vcActivated || "Voice Command", "info", 1500);
+          }
+      }
+  );
 
   // State for transferring text between tabs
   const [transferRequest, setTransferRequest] = useState<{ text: string, target: Tab, timestamp: number } | null>(null);
@@ -191,6 +205,12 @@ export default function App() {
       const text = editorRef.current?.getText();
       if (!text || !text.trim()) return;
       
+      // Check Free Tier
+      if (state.settings.isFreeTier) {
+          addNotification(t.paidFeatureTooltip || "Only for Paid Tier keys", 'warning');
+          return;
+      }
+
       actions.setStatus('speaking');
       addNotification(state.language === 'ru' ? 'Озвучивание...' : 'Generating Speech...', 'info');
 
@@ -213,7 +233,7 @@ export default function App() {
       } finally {
           actions.setStatus(state.settings.enabled ? 'idle' : 'paused');
       }
-  }, [state.settings.ttsVoice, state.settings.enabled, actions, addNotification, state.language]);
+  }, [state.settings.ttsVoice, state.settings.enabled, state.settings.isFreeTier, actions, addNotification, state.language]);
 
   // New: FULL WIPE HANDLER (Combines App logic + Editor logic)
   const performFullWipe = useCallback(() => {
@@ -228,6 +248,15 @@ export default function App() {
           // Next time editor mounts, it will read empty state.
       }
   }, [actions]);
+
+  // QUOTA EXCEEDED HANDLER
+  const handleQuotaExceeded = useCallback(() => {
+      actions.handleForceFreeTier();
+      const msg = state.language === 'ru' 
+        ? "Лимит квоты исчерпан. Переключено на бесплатный режим (Free)." 
+        : "Quota exceeded. Switched to Free Mode.";
+      addNotification(msg, 'warning', 6000);
+  }, [actions, state.language, addNotification]);
 
   // Determine active index for logic (though visual transition is now absolute stacking)
   const tabs = ['editor', 'chat', 'translator', 'planner'];
@@ -272,6 +301,8 @@ export default function App() {
                     isExiting={isExitingWelcome} 
                     onWindowControl={actions.handleWindowControl}
                     onWipeData={performFullWipe} 
+                    settings={state.settings}
+                    onUpdateSettings={actions.setSettings}
                 />
                 <NotificationSystem />
             </div>
@@ -305,7 +336,7 @@ export default function App() {
                 setCurrentTab={actions.setCurrentTab}
                 isPinned={state.isPinned}
                 onTogglePin={actions.handleTogglePin}
-                onSetLanguage={actions.setLanguage} // Updated Prop
+                onSetLanguage={actions.setLanguage} 
                 onTogglePause={actions.handleToggleProcessing}
                 onToggleClipboard={actions.toggleClipboard}
                 onToggleSettings={actions.toggleSettings}
@@ -320,12 +351,12 @@ export default function App() {
                 onPasteText={handleHeaderPaste}
                 onCutText={handleHeaderCut}
                 onClearAndPaste={handleHeaderClearAndPaste}
-                onSwitchLayout={handleHeaderSwitchLayout} // New Handler
+                onSwitchLayout={handleHeaderSwitchLayout} 
                 onUpdateSettings={actions.setSettings}
                 onSendToChat={handleSendToChat}
                 onSendToTranslator={handleSendToTranslator}
-                onSpeakText={handleHeaderSpeak} // Connect TTS
-                onToggleArchive={actions.toggleAudioArchive} // Connect Archive
+                onSpeakText={handleHeaderSpeak} 
+                onToggleArchive={actions.toggleAudioArchive} 
                 showArchive={state.showAudioArchive}
               />
 
@@ -354,6 +385,7 @@ export default function App() {
                         onClose={actions.toggleSettings}
                         isVisible={state.showSettings}
                         onVerifyPin={actions.validatePin}
+                        voiceStatus={voiceStatus} 
                       />
                   </div>
               </div>
@@ -402,6 +434,7 @@ export default function App() {
                         onHistoryUpdate={handleHistoryUpdate}
                         showClipboard={state.showClipboard}
                         onToggleClipboard={actions.toggleClipboard}
+                        onQuotaExceeded={handleQuotaExceeded} // WIRE UP QUOTA HANDLER
                     />
                 </div>
 
@@ -432,6 +465,7 @@ export default function App() {
                         language={state.language} 
                         apiKey={state.storedKey}
                         onToggleClipboard={actions.toggleClipboard}
+                        settings={state.settings} // PASS SETTINGS FOR TIER CHECK
                     />
                 </div>
 

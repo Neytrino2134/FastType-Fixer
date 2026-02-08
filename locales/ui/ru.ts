@@ -1,4 +1,6 @@
 
+
+
 import { UIDictionary } from '../../types';
 
 export const UI_RU: UIDictionary = {
@@ -70,7 +72,7 @@ export const UI_RU: UIDictionary = {
     btnEnhance: "Улучшить текст",
     btnUndo: "Отменить",
     btnRedo: "Вернуть",
-    btnSpeak: "Озвучить текст", // NEW
+    btnSpeak: "Озвучить текст", 
     
     // Status
     statusTyping: "Печатаю...",
@@ -111,7 +113,18 @@ export const UI_RU: UIDictionary = {
     settingsFinalization: "Финализация простоя (сек)",
     settingsEconomy: "Экономия Трафика",
     settingsEconomyDesc: "Сначала проверяет локальный словарь. ИИ используется только для неизвестных слов.",
+    settingsMonochrome: "Монохромный режим",
+    settingsMonochromeDesc: "Отключает цветную подсветку текста. Логика работает в фоне.",
+    settingsVoiceControl: "Голосовое управление (Hands-Free)",
+    settingsVoiceControlDesc: "Включает запись по кодовой фразе.",
+    settingsWakeWord: "Фраза активации",
+    vcActivated: "Голосовая команда распознана",
     
+    // TIERS
+    settingsFreeTier: "Бесплатный ключ (Без аудио)",
+    settingsPaidTier: "Платный ключ (Все функции)",
+    paidFeatureTooltip: "Только для платных ключей (Paid Tier)",
+
     howItWorksTitle: "ЛЕГЕНДА ЦВЕТОВ",
     howItWorksDesc: "1. Серый: Ввод\n2. Жёлтый: Проверка словаря\n3. Красный: Ошибка (Словарь)\n4. Голубой: Проверено (ОК)\n5. Фиолетовый: Исправлено ИИ\n6. Зеленый: Финал",
     changeKey: "Сменить API Ключ",
@@ -132,6 +145,8 @@ export const UI_RU: UIDictionary = {
     tooltipMin: "Свернуть",
     tooltipMax: "Развернуть",
     tooltipClose: "Закрыть",
+    tooltipNoColors: "Режим: Без цветов (Серый)",
+    tooltipColors: "Режим: Цветной (Стандарт)",
     
     // Header Actions
     btnHeaderClear: "Очистить всё",
@@ -182,7 +197,7 @@ export const UI_RU: UIDictionary = {
     audioModelTitle: "Модель звука",
     modelFlash: "Gemini 2.5 Flash (Быстро)",
     modelPro: "Gemini 2.5 Pro (Умно)",
-    ttsVoiceTitle: "Голос Озвучки (TTS)", // NEW
+    ttsVoiceTitle: "Голос Озвучки (TTS)", 
     
     // New Buttons
     btnHelp: "Справка",

@@ -1,4 +1,5 @@
 
+
 export interface CorrectionSettings {
   enabled: boolean;
   debounceMs: number;
@@ -9,7 +10,7 @@ export interface CorrectionSettings {
   clipboardEnabled: boolean;
   silenceThreshold: number; 
   audioModel: 'gemini-2.5-flash' | 'gemini-2.5-pro';
-  ttsVoice: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr'; // NEW
+  ttsVoice: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr'; 
   economyMode: boolean; 
   dictionaryCheck: boolean;
   // Visualizer Settings
@@ -21,6 +22,12 @@ export interface CorrectionSettings {
   visualizerGravity: number;
   visualizerMirror: boolean;
   developerMode: boolean;
+  monochromeMode: boolean;
+  // Voice Control (Hands-Free)
+  voiceControlEnabled: boolean;
+  wakeWord: string;
+  // Tier System
+  isFreeTier: boolean; // NEW: Determines if paid features (Audio/Video) are locked
 }
 
 export interface ClipboardItem {
@@ -100,6 +107,7 @@ export interface PlannerNote {
   id: string;
   title: string;
   content: string;
+  imageData?: string; // New: Base64 image data
   timestamp: number;
   color: 'yellow' | 'blue' | 'green' | 'purple' | 'red';
 }
@@ -136,5 +144,7 @@ declare global {
       maximize: () => void;
       close: () => void;
     };
+    webkitSpeechRecognition: any;
+    SpeechRecognition: any;
   }
 }

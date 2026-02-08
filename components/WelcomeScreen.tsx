@@ -1,7 +1,9 @@
 
+
+
 import React, { useState } from 'react';
 import { Volume2, VolumeX, ChevronLeft, Info, Minus, Square, X } from 'lucide-react';
-import { Language } from '../types';
+import { Language, CorrectionSettings } from '../types';
 import { ApiKeyGuide } from './ApiKeyGuide';
 import { VisualizerCanvas } from './Editor/VisualizerCanvas';
 import { useWelcomeAudio } from '../hooks/useWelcomeAudio';
@@ -21,6 +23,8 @@ interface WelcomeScreenProps {
   isExiting: boolean;
   onWindowControl: (action: 'minimize' | 'maximize' | 'close') => void;
   onWipeData: () => void;
+  settings: CorrectionSettings;
+  onUpdateSettings: (newSettings: CorrectionSettings) => void;
 }
 
 type ViewState = 'welcome' | 'setup' | 'guide';
@@ -36,7 +40,9 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     onSetLock,
     isExiting,
     onWindowControl,
-    onWipeData
+    onWipeData,
+    settings,
+    onUpdateSettings
 }) => {
   const [apiKey, setApiKey] = useState(initialKey);
   
@@ -228,6 +234,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
                 justFinishedGuide={justFinishedGuide}
                 setJustFinishedGuide={setJustFinishedGuide}
                 MuteButton={MuteButton}
+                settings={settings}
+                onUpdateSettings={onUpdateSettings}
             />
         </div>
 

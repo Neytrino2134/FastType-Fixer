@@ -23,11 +23,13 @@ interface UseSmartEditorProps {
     resetSignal: number;
     onPauseProcessing: () => void;
     onToggleProcessing: () => void;
+    dictionariesLoaded?: boolean;
+    onQuotaExceeded?: () => void;
 }
 
 const TYPING_TIMEOUT_MS = 1500; 
 const MANUAL_SAVE_DEBOUNCE_MS = 1000;
-const AUTO_REFRESH_IDLE_MS = 20000; // 20 seconds for auto-cleanup
+const AUTO_REFRESH_IDLE_MS = 20000;
 
 export const useSmartEditor = ({ 
   settings, 
@@ -39,7 +41,9 @@ export const useSmartEditor = ({
   onClipboardAction,
   resetSignal,
   onPauseProcessing,
-  onToggleProcessing
+  onToggleProcessing,
+  dictionariesLoaded,
+  onQuotaExceeded
 }: UseSmartEditorProps) => {
   // 1. Core State & History
   const { 
@@ -66,19 +70,21 @@ export const useSmartEditor = ({
   const settingsRef = useRef(settings);
   const statusRef = useRef(status);
   
-  // Track last interaction for auto-refresh
   const lastInteractionTimeRef = useRef(Date.now());
-  
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const manualSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Lock for toggleRecording to prevent double-clicks
   const toggleLockRef = useRef(false);
-
-  // Worker Ref
   const workerRef = useRef<Worker | null>(null);
 
-  // Sync refs
+  const [contextMenu, setContextMenu] = useState<{
+      x: number;
+      y: number;
+      suggestions: string[];
+      targetWord: string;
+      rangeStart: number;
+      rangeEnd: number;
+  } | null>(null);
+
   useEffect(() => { textRef.current = text; }, [text]);
   useEffect(() => { committedLengthRef.current = committedLength; }, [committedLength]);
   useEffect(() => { correctedLengthRef.current = correctedLength; }, [correctedLength]);
@@ -86,32 +92,43 @@ export const useSmartEditor = ({
   useEffect(() => { checkingLengthRef.current = checkingLength; }, [checkingLength]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   
-  // Status Sync
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
 
-  // 3. Worker Initialization
   useEffect(() => {
       workerRef.current = new Worker(new URL('../workers/dictionary.worker.ts', import.meta.url), { type: 'module' });
-      
-      const sendDict = (lang: string, set: Set<string>) => {
-          workerRef.current?.postMessage({ 
-              type: 'SET_DICTIONARY', 
-              language: lang, 
-              words: Array.from(set) 
-          });
+      const sendDict = () => {
+          if (!workerRef.current) return;
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'ru', words: Array.from(COMMON_WORDS_RU) });
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'en', words: Array.from(COMMON_WORDS_EN) });
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'uz-latn', words: Array.from(COMMON_WORDS_UZ_LATN) });
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'uz-cyrl', words: Array.from(COMMON_WORDS_UZ_CYRL) });
       };
-
-      sendDict('ru', COMMON_WORDS_RU);
-      sendDict('en', COMMON_WORDS_EN);
-      sendDict('uz-latn', COMMON_WORDS_UZ_LATN);
-      sendDict('uz-cyrl', COMMON_WORDS_UZ_CYRL);
-
+      sendDict();
+      workerRef.current.onmessage = (e) => {
+          const { type, suggestions, original } = e.data;
+          if (type === 'SUGGESTIONS_RESULT') {
+              setContextMenu(prev => {
+                  if (prev && prev.targetWord === original) {
+                      return { ...prev, suggestions };
+                  }
+                  return prev;
+              });
+          }
+      };
       return () => { workerRef.current?.terminate(); };
-  }, []);
+  }, []); 
 
-  // 4. Sub-Hooks
+  useEffect(() => {
+      if (workerRef.current && dictionariesLoaded) {
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'ru', words: Array.from(COMMON_WORDS_RU) });
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'en', words: Array.from(COMMON_WORDS_EN) });
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'uz-latn', words: Array.from(COMMON_WORDS_UZ_LATN) });
+          workerRef.current.postMessage({ type: 'SET_DICTIONARY', language: 'uz-cyrl', words: Array.from(COMMON_WORDS_UZ_CYRL) });
+      }
+  }, [dictionariesLoaded]); 
+
   const { isRecording, startRecording, stopRecording, visualizerDataRef, autoStopCountdown } = useAudioRecorder(settings.silenceThreshold);
   const { addNotification } = useNotification();
   const [visualizerStatus, setVisualizerStatus] = useState<VisualizerStatus>('idle');
@@ -121,12 +138,45 @@ export const useSmartEditor = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   
-  // IMPORTANT: Counts how many chunks are currently being processed by Gemini
   const pendingTranscriptionsCount = useRef(0);
+
+  // --- ERROR HANDLING ---
+  const handleCriticalError = useCallback((msg: string, code?: string) => {
+      if (code === 'QUOTA' || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+          // QUOTA EXCEEDED HANDLING
+          
+          // 1. Force Stop Everything
+          if (isRecording) {
+              stopRecording().catch(() => {});
+          }
+          
+          // 2. Kill Status Loops (Prevent "Analyzing" blink)
+          setIsAnalyzing(false); 
+          pendingTranscriptionsCount.current = 0;
+          onStatusChange('idle');
+          setVisualizerStatus('idle');
+          setIsDevRecording(false);
+
+          // 3. Trigger Downgrade
+          if (onQuotaExceeded) {
+              onQuotaExceeded();
+          }
+      } else {
+          // Standard Error
+          addNotification(msg, 'error', 5000);
+          onStatusChange('error');
+          if (isRecording) {
+              stopRecording();
+              setIsDevRecording(false);
+              setVisualizerStatus('idle');
+          }
+          onPauseProcessing();
+      }
+  }, [addNotification, onStatusChange, isRecording, stopRecording, onPauseProcessing, onQuotaExceeded]);
 
   // --- CORE TEXT UPDATE LOGIC ---
   const handleTextUpdate = useCallback((newVal: string) => {
-    lastInteractionTimeRef.current = Date.now(); // Reset idle timer
+    lastInteractionTimeRef.current = Date.now();
     const oldVal = textRef.current;
     
     setText(newVal);
@@ -165,8 +215,7 @@ export const useSmartEditor = ({
         }, MANUAL_SAVE_DEBOUNCE_MS);
     }
     
-    // Only set "typing" if we aren't in a heavier AI state
-    if (statusRef.current !== 'recording' && statusRef.current !== 'transcribing' && statusRef.current !== 'ai_fixing' && statusRef.current !== 'ai_finalizing') {
+    if (statusRef.current !== 'recording' && statusRef.current !== 'transcribing' && statusRef.current !== 'ai_fixing' && statusRef.current !== 'ai_finalizing' && statusRef.current !== 'error') {
         onStatusChange('typing');
     }
 
@@ -176,7 +225,6 @@ export const useSmartEditor = ({
         }
     }, TYPING_TIMEOUT_MS);
 
-    // Sync pointers
     let diffIndex = 0;
     while (diffIndex < oldVal.length && diffIndex < newVal.length && oldVal[diffIndex] === newVal[diffIndex]) {
       diffIndex++;
@@ -188,22 +236,64 @@ export const useSmartEditor = ({
     if (diffIndex < committedLengthRef.current) setCommittedLength(Math.max(0, diffIndex));
   }, [saveCheckpoint, onStatusChange, setCommittedLength, setCorrectedLength, setCheckedLength, setCheckingLength, setText, settings.enabled]);
 
+  const handleRequestSuggestions = useCallback((word: string, start: number, end: number, x: number, y: number) => {
+      setContextMenu({
+          x,
+          y,
+          suggestions: [],
+          targetWord: word,
+          rangeStart: start,
+          rangeEnd: end
+      });
+      if (workerRef.current) {
+          workerRef.current.postMessage({ 
+              type: 'GET_SUGGESTIONS', 
+              text: word, 
+              language: language 
+          });
+      }
+  }, [language]);
+
+  const handleSuggestionSelect = useCallback((newWord: string) => {
+      if (!contextMenu) return;
+      const { rangeStart, rangeEnd } = contextMenu;
+      const currentText = textRef.current;
+      const prefix = currentText.slice(0, rangeStart);
+      const suffix = currentText.slice(rangeEnd);
+      let replacement = newWord;
+      const original = contextMenu.targetWord;
+      if (original[0] === original[0].toUpperCase() && newWord[0] === newWord[0].toLowerCase()) {
+          replacement = newWord.charAt(0).toUpperCase() + newWord.slice(1);
+      }
+      const newFullText = prefix + replacement + suffix;
+      handleTextUpdate(newFullText);
+      setContextMenu(null);
+      onStatsUpdate(1);
+      setTimeout(() => {
+          if (textareaRef.current) {
+              textareaRef.current.focus();
+              const newPos = rangeStart + replacement.length;
+              textareaRef.current.setSelectionRange(newPos, newPos);
+          }
+      }, 10);
+  }, [contextMenu, handleTextUpdate, onStatsUpdate]);
+
+  const handleCloseContextMenu = useCallback(() => {
+      setContextMenu(null);
+  }, []);
+
   const handleAutoFormat = useCallback((newText: string) => {
     const textarea = textareaRef.current;
     if (!textarea) {
         handleTextUpdate(newText);
         return;
     }
-
     const currentPos = textarea.selectionStart;
     const currentText = textRef.current;
-    
     const prefix = currentText.substring(0, currentPos);
     const processedPrefix = runMiniScripts(prefix);
     const newCursorPos = processedPrefix.length;
-
     handleTextUpdate(newText);
-
     setTimeout(() => {
         if (textareaRef.current) {
             textareaRef.current.focus();
@@ -236,32 +326,23 @@ export const useSmartEditor = ({
       onStatsUpdate,
       onStatusChange,
       onAutoFormat: handleAutoFormat,
-      workerRef
+      workerRef,
+      onFatalError: (msg) => handleCriticalError(msg) // Delegate to main error handler
   });
 
-  // --- AUTO REFRESH / IDLE CLEANUP ---
   useEffect(() => {
       const maintenanceInterval = setInterval(() => {
           const now = Date.now();
           const idleTime = now - lastInteractionTimeRef.current;
-          
           if (idleTime > AUTO_REFRESH_IDLE_MS && statusRef.current === 'idle' && pendingTranscriptionsCount.current === 0) {
               resetProcessor(); 
               setCheckingLength(0); 
-              
-              if (isRecording) {
-                  stopRecording(); 
-              }
-              
+              if (isRecording) stopRecording(); 
               lastInteractionTimeRef.current = Date.now(); 
           }
       }, 5000); 
-
       return () => clearInterval(maintenanceInterval);
   }, [resetProcessor, isRecording, stopRecording]);
-
-
-  // --- HANDLERS ---
 
   const { handleUndo, handleRedo, handleKeyDown } = useEditorHotkeys({
       undo,
@@ -273,9 +354,8 @@ export const useSmartEditor = ({
   });
 
   const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (backdropRef.current) {
-      backdropRef.current.scrollTop = e.currentTarget.scrollTop;
-    }
+    if (backdropRef.current) backdropRef.current.scrollTop = e.currentTarget.scrollTop;
+    setContextMenu(null);
   };
 
   const handleClipboardEvent = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -309,33 +389,24 @@ export const useSmartEditor = ({
   const handleEnhance = async () => {
       lastInteractionTimeRef.current = Date.now();
       const t = getTranslation(language);
-      
       if (statusRef.current === 'recording' || statusRef.current === 'enhancing' || !textRef.current.trim()) return;
-      
       if (committedLengthRef.current >= textRef.current.trim().length) {
           addNotification(t.nothingToImprove, 'info');
           return;
       }
-
       onStatusChange('enhancing');
-      
       const original = textRef.current;
       saveCheckpoint(original, committedLengthRef.current, correctedLengthRef.current, ['pre_ai']);
-
       try {
           const enhanced = await enhanceFullText(original, language);
-          
           if (enhanced && enhanced !== original) {
               setText(enhanced);
-              
               const len = enhanced.length;
               setCommittedLength(len);
               setCorrectedLength(len);
               setCheckedLength(len);
               setCheckingLength(len);
-              
               addAiFixedSegment(normalizeBlock(enhanced));
-              
               saveCheckpoint(enhanced, len, len, ['enhanced', 'ai_corrected']);
               onStatsUpdate(1);
           } else {
@@ -346,9 +417,10 @@ export const useSmartEditor = ({
               setCheckedLength(len);
               setCheckingLength(len);
           }
-      } catch (e) {
+      } catch (e: any) {
           console.error("Enhance failed", e);
-          addNotification(language === 'ru' ? "Ошибка улучшения" : "Enhance failed", 'error');
+          if (e.isFatal) handleCriticalError(e.message, e.code);
+          else addNotification(language === 'ru' ? "Ошибка улучшения" : "Enhance failed", 'error');
       } finally {
           onStatusChange('idle');
       }
@@ -362,63 +434,46 @@ export const useSmartEditor = ({
   const handleMediaFile = useCallback((file: File) => {
       lastInteractionTimeRef.current = Date.now();
       const reader = new FileReader();
-      
       const isAudio = file.type.startsWith('audio/');
       const isImage = file.type.startsWith('image/');
-
       if (!isAudio && !isImage) {
           addNotification(language === 'ru' ? "Неподдерживаемый формат файла" : "Unsupported file format", 'error');
           return;
       }
-
       pendingTranscriptionsCount.current += 1;
       setIsAnalyzing(true);
       onStatusChange('transcribing');
-
       reader.onload = async (e) => {
           if (e.target?.result) {
               const base64 = (e.target.result as string).split(',')[1];
               try {
                   let resultText = "";
-                  
                   if (isAudio) {
                       resultText = await transcribeAudio(base64, file.type, language, settingsRef.current.audioModel);
                   } else if (isImage) {
                       resultText = await recognizeTextFromImage(base64, file.type, language);
                   }
-
                   if (resultText && resultText.trim()) {
                       const currentText = textRef.current;
                       const separator = currentText.trim().length > 0 && !currentText.endsWith(' ') ? ' ' : '';
                       const newTextValue = currentText + separator + resultText;
                       const newLen = newTextValue.length;
-
                       setText(newTextValue);
                       notifyActivity();
-
                       addDictatedSegment(normalizeBlock(resultText));
-
-                      // IMPORTANT: Do NOT advance validation pointers here. 
-                      // Leave them as they are so the pipeline picks up the new text as "Raw/Unchecked"
-                      // and triggers Bulk Finalization.
-                      // setCorrectedLength(newLen); <--- REMOVED
-                      // setCheckedLength(newLen);   <--- REMOVED
-
                       onStatsUpdate(1);
                       saveCheckpoint(newTextValue, committedLengthRef.current, newLen, ['dictated', 'raw_dictation']);
-                      
                       setTimeout(() => {
                         if (textareaRef.current) {
                             textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
-                            if (backdropRef.current) {
-                                 backdropRef.current.scrollTop = textareaRef.current.scrollHeight;
-                            }
+                            if (backdropRef.current) backdropRef.current.scrollTop = textareaRef.current.scrollHeight;
                         }
                       }, 10);
                   }
-              } catch (e) {
+              } catch (e: any) {
                   console.error("Media processing failed", e);
-                  addNotification(language === 'ru' ? "Ошибка обработки файла" : "File processing error", 'error');
+                  if (e.isFatal) handleCriticalError(e.message, e.code);
+                  else addNotification(language === 'ru' ? "Ошибка обработки файла" : "File processing error", 'error');
               } finally {
                   pendingTranscriptionsCount.current -= 1;
                   if (pendingTranscriptionsCount.current <= 0) {
@@ -430,13 +485,10 @@ export const useSmartEditor = ({
           }
       };
       reader.readAsDataURL(file);
-  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, addNotification, settings.enabled]);
+  }, [language, onStatsUpdate, onStatusChange, setText, saveCheckpoint, notifyActivity, addDictatedSegment, addNotification, settings.enabled, handleCriticalError]);
 
   const handleAudioChunk = useCallback(async (base64: string, mimeType: string) => {
-    // 1. Increment Pending Count
     pendingTranscriptionsCount.current += 1;
-    
-    // 2. Set Background Analysis Flag
     setIsAnalyzing(true);
     
     try {
@@ -448,51 +500,37 @@ export const useSmartEditor = ({
             const separator = currentText.trim().length > 0 && !currentText.endsWith(' ') ? ' ' : '';
             const newTextValue = currentText + separator + transcription;
             const newLen = newTextValue.length;
-
             setText(newTextValue);
             notifyActivity();
-
             addDictatedSegment(normalizeBlock(transcription));
-
-            // CRITICAL FIX: Do NOT advance the verification pointers (Corrected/Checked).
-            // We want the useTextProcessor to see this text as "Dirty" so it triggers Finalization.
-            // setCorrectedLength(newLen); <-- REMOVED
-            // setCheckedLength(newLen);   <-- REMOVED
-            // setCheckingLength(newLen);  <-- REMOVED
-
             onStatsUpdate(1);
-            
             saveCheckpoint(newTextValue, committedLengthRef.current, newLen, ['dictated', 'raw_dictation']);
-
             setTimeout(() => {
                 if (textareaRef.current) {
                     textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
-                    if (backdropRef.current) {
-                         backdropRef.current.scrollTop = textareaRef.current.scrollHeight;
-                    }
+                    if (backdropRef.current) backdropRef.current.scrollTop = textareaRef.current.scrollHeight;
                 }
             }, 10);
         }
-    } catch (e) {
-        console.error("Chunk transcription failed", e);
+    } catch (e: any) {
+        // DETECT QUOTA ERROR HERE
+        if (e.code === 'QUOTA' || (e.message && e.message.includes('429'))) {
+            handleCriticalError(e.message, 'QUOTA');
+        } else if (e.isFatal) {
+            handleCriticalError(e.message);
+        }
     } finally {
-        // 3. Decrement Pending Count
         pendingTranscriptionsCount.current -= 1;
-        
-        // 4. Update UI flag only when all chunks are done
         if (pendingTranscriptionsCount.current <= 0) {
             pendingTranscriptionsCount.current = 0; 
             setIsAnalyzing(false);
-            
-            // Force status to Idle to ensure the Processor tick wakes up immediately
             if (!isRecordingRef.current) {
                  onStatusChange(settings.enabled ? 'idle' : 'paused'); 
             }
         }
     }
-  }, [language, onStatsUpdate, setText, saveCheckpoint, notifyActivity, addDictatedSegment, settings.enabled, onStatusChange]);
+  }, [language, onStatsUpdate, setText, saveCheckpoint, notifyActivity, addDictatedSegment, settings.enabled, onStatusChange, handleCriticalError]);
 
-  // We need a ref to access isRecording inside callbacks without dependency loops
   const isRecordingRef = useRef(isRecording);
   useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
 
@@ -500,7 +538,6 @@ export const useSmartEditor = ({
     if (toggleLockRef.current) return;
     toggleLockRef.current = true;
     lastInteractionTimeRef.current = Date.now();
-    
     try {
         if (isDevRecording) {
             await stopRecording();
@@ -509,27 +546,17 @@ export const useSmartEditor = ({
             setVisualizerStatus('idle');
             return;
         }
-
         if (isRecordingRef.current) {
-            // --- STOPPING ---
-            // Set status to Idle for badges, but button is controlled by isRecording
             onStatusChange(settings.enabled ? 'idle' : 'paused'); 
             setVisualizerStatus('idle');
-
-            // Stop the recorder (this triggers final chunk via callback)
             await stopRecording();
-
         } else {
-            // --- STARTING ---
-            
             resetProcessor();
             pendingTranscriptionsCount.current = 0;
-
             const success = await startRecording(
                 async (b64, mime) => { await handleAudioChunk(b64, mime); },
                 (newStatus) => setVisualizerStatus(newStatus)
             );
-            
             if (success) {
                 onStatusChange('recording');
                 setVisualizerStatus('listening');
@@ -545,7 +572,6 @@ export const useSmartEditor = ({
          await stopRecording();
          return;
      }
-
      if (isDevRecording) {
          await stopRecording();
          setIsDevRecording(false);
@@ -602,6 +628,10 @@ export const useSmartEditor = ({
       handleMediaFile, 
       toggleDevRecording, 
       isDevRecording,
-      processingOverlay
+      processingOverlay,
+      contextMenu,
+      handleRequestSuggestions,
+      handleSuggestionSelect,
+      handleCloseContextMenu
   };
 };

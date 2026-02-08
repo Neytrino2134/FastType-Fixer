@@ -1,6 +1,5 @@
-
-import React, { useState } from 'react';
-import { Lock, Unlock, Minus, Square, X, AlertOctagon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Lock, Unlock, Minus, Square, X, AlertOctagon, RotateCcw } from 'lucide-react';
 import { getTranslation } from '../../utils/i18n';
 import { Language } from '../../types';
 import { APP_VERSION } from '../../utils/versionInfo';
@@ -19,18 +18,67 @@ export const LockedView: React.FC<LockedViewProps> = ({
     onWipeData
 }) => {
     const t = getTranslation(language);
-    const [lockInput, setLockInput] = useState('');
     const [lockError, setLockError] = useState('');
     const [showWipeModal, setShowWipeModal] = useState(false);
+    
+    // Split Input State
+    const [pinLength, setPinLength] = useState(4);
+    const [pinDigits, setPinDigits] = useState<string[]>([]);
+    const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+    // Determine PIN Length on Mount
+    useEffect(() => {
+        const storedCode = localStorage.getItem('fasttype_lock_code') || '';
+        const len = storedCode.length > 0 ? storedCode.length : 4;
+        setPinLength(len);
+        setPinDigits(Array(len).fill(''));
+        
+        // Focus first input
+        setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    }, []);
+
+    const handlePinChange = (index: number, value: string) => {
+        setLockError(''); // Clear error on typing
+        const newPin = [...pinDigits];
+        // Take only last char
+        const val = value.slice(-1);
+        newPin[index] = val;
+        setPinDigits(newPin);
+
+        // Auto-advance
+        if (val && index < pinLength - 1) {
+            inputRefs.current[index + 1]?.focus();
+        }
+
+        // Auto-Submit Check
+        const fullCode = newPin.join('');
+        if (fullCode.length === pinLength && val !== '') {
+            // Slight delay for visual feedback
+            setTimeout(() => {
+                attemptUnlock(fullCode);
+            }, 50);
+        }
+    };
+
+    const handlePinKeyDown = (index: number, e: React.KeyboardEvent) => {
+        if (e.key === 'Backspace' && !pinDigits[index] && index > 0) {
+            inputRefs.current[index - 1]?.focus();
+        }
+    };
+
+    const attemptUnlock = (code: string) => {
+        if (onUnlock(code)) {
+            // Success handled by parent unmounting this view
+        } else {
+            setLockError(t.lockError);
+            setPinDigits(Array(pinLength).fill(''));
+            inputRefs.current[0]?.focus();
+        }
+    };
 
     const handleUnlockSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (onUnlock(lockInput)) {
-            setLockInput('');
-            setLockError('');
-        } else {
-            setLockError(t.lockError);
-        }
+        attemptUnlock(pinDigits.join(''));
     };
 
     return (
@@ -72,38 +120,57 @@ export const LockedView: React.FC<LockedViewProps> = ({
                 </div>
             )}
 
-            <div className={`no-drag w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-8 flex flex-col items-center text-center animate-in zoom-in duration-300 ${showWipeModal ? 'blur-sm scale-95 opacity-50 pointer-events-none' : ''}`}>
+            <div className={`no-drag w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-8 flex flex-col items-center text-center animate-in zoom-in duration-300 ${showWipeModal ? 'blur-sm scale-95 opacity-50 pointer-events-none' : ''}`}>
                 <div className="bg-slate-800 p-4 rounded-full mb-4 ring-1 ring-indigo-500/30">
                     <Lock className="w-8 h-8 text-indigo-400" />
                 </div>
                 <h2 className="text-xl font-bold text-white mb-1">{t.lockTitle}</h2>
-                <div className="text-[10px] font-mono text-slate-600 mb-6">v{APP_VERSION}</div>
-                <form onSubmit={handleUnlockSubmit} className="w-full space-y-4">
-                    <input
-                        type="password"
-                        inputMode="numeric"
-                        value={lockInput}
-                        onChange={(e) => {
-                            setLockInput(e.target.value);
-                            setLockError('');
-                        }}
-                        placeholder={t.lockPlaceholder}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-3 text-center text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-mono tracking-widest text-lg"
-                        autoFocus
-                    />
-                    {lockError && <p className="text-red-400 text-xs animate-pulse">{lockError}</p>}
-                    <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center gap-2">
-                        <Unlock className="w-4 h-4" />
-                        <span>{t.lockBtn}</span>
-                    </button>
+                <div className="text-[10px] font-mono text-slate-600 mb-8">v{APP_VERSION}</div>
+                
+                <form onSubmit={handleUnlockSubmit} className="w-full space-y-6">
+                    {/* Split Inputs */}
+                    <div className="flex justify-center gap-3">
+                        {pinDigits.map((digit, idx) => (
+                            <input
+                                key={idx}
+                                ref={(el) => { inputRefs.current[idx] = el; }}
+                                type="password"
+                                inputMode="text"
+                                value={digit}
+                                onChange={(e) => handlePinChange(idx, e.target.value)}
+                                onKeyDown={(e) => handlePinKeyDown(idx, e)}
+                                className={`
+                                    bg-slate-950 border rounded-xl text-center text-xl font-bold text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all shadow-inner
+                                    ${pinLength === 6 ? 'w-10 h-12' : 'w-14 h-16'}
+                                    ${lockError ? 'border-red-500 text-red-400' : digit ? 'border-indigo-500/50' : 'border-slate-700'}
+                                `}
+                                autoFocus={idx === 0}
+                                maxLength={1}
+                            />
+                        ))}
+                    </div>
+
+                    {lockError && <p className="text-red-400 text-xs font-bold animate-pulse tracking-wide uppercase">{lockError}</p>}
+                    
+                    {/* Hidden Submit for Enter Key support on last field if auto doesn't catch */}
+                    <button type="submit" className="hidden" />
                 </form>
 
-                <button 
-                    onClick={() => setShowWipeModal(true)}
-                    className="mt-6 text-[10px] text-slate-500 hover:text-red-400 transition-colors uppercase tracking-wider font-semibold"
-                >
-                    {t.lockForgot}
-                </button>
+                <div className="mt-8 flex gap-4 w-full justify-center">
+                    <button 
+                        onClick={() => { setPinDigits(Array(pinLength).fill('')); inputRefs.current[0]?.focus(); }}
+                        className="text-slate-500 hover:text-white transition-colors p-2 rounded-full hover:bg-slate-800"
+                        title="Reset"
+                    >
+                        <RotateCcw className="w-4 h-4" />
+                    </button>
+                    <button 
+                        onClick={() => setShowWipeModal(true)}
+                        className="text-[10px] text-slate-500 hover:text-red-400 transition-colors uppercase tracking-wider font-bold py-2"
+                    >
+                        {t.lockForgot}
+                    </button>
+                </div>
             </div>
         </div>
     );

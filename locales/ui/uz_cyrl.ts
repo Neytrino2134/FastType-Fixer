@@ -1,4 +1,6 @@
 
+
+
 import { UIDictionary } from '../../types';
 
 export const UI_UZ_CYRL: UIDictionary = {
@@ -70,7 +72,7 @@ export const UI_UZ_CYRL: UIDictionary = {
     btnEnhance: "Матнни яхшилаш",
     btnUndo: "Бекор қилиш",
     btnRedo: "Қайтариш",
-    btnSpeak: "Матнни ўқиш", // NEW
+    btnSpeak: "Матнни ўқиш", 
     
     // Status
     statusTyping: "Ёзилмоқда...",
@@ -111,6 +113,17 @@ export const UI_UZ_CYRL: UIDictionary = {
     settingsFinalization: "Якунлаш вақти (сек)",
     settingsEconomy: "Траффикни тежаш",
     settingsEconomyDesc: "Аввал локал луғатни текширади.",
+    settingsMonochrome: "Кулранг режим",
+    settingsMonochromeDesc: "Рангли матнни ўчириш. Мантиқ фонда ишлайди.",
+    settingsVoiceControl: "Овозли бошқарув",
+    settingsVoiceControlDesc: "Гапириш орқали ёзишни бошлаш",
+    settingsWakeWord: "Фаоллаштириш сўзи",
+    vcActivated: "Овозли буйруқ қабул қилинди",
+
+    // TIERS
+    settingsFreeTier: "Бепул Калит (Овозсиз)",
+    settingsPaidTier: "Пуллик Калит (Тўлиқ)",
+    paidFeatureTooltip: "Фақат пуллик калитлар учун",
 
     howItWorksTitle: "РАНГЛАР МАЪНОСИ",
     howItWorksDesc: "1. Кулранг: Киритилган\n2. Сариқ: Текшириш\n3. Қизил: Хато (Луғатда йўқ)\n4. Кўк: Тасдиқланди (ОК)\n5. Бинафша: АИ тузатди\n6. Яшил: Якуний",
@@ -132,6 +145,8 @@ export const UI_UZ_CYRL: UIDictionary = {
     tooltipMin: "Кичрайтириш",
     tooltipMax: "Катталаштириш",
     tooltipClose: "Ёпиш",
+    tooltipNoColors: "Режим: Рангсиз (Кулранг)",
+    tooltipColors: "Режим: Рангли",
     
     // Header Actions
     btnHeaderClear: "Ҳаммасини ўчириш",
@@ -182,7 +197,7 @@ export const UI_UZ_CYRL: UIDictionary = {
     audioModelTitle: "Аудио Модел",
     modelFlash: "Gemini 2.5 Flash (Тез)",
     modelPro: "Gemini 2.5 Pro (Ақлли)",
-    ttsVoiceTitle: "Овоз (TTS)", // NEW
+    ttsVoiceTitle: "Овоз (TTS)", 
     
     // New Buttons
     btnHelp: "Ёрдам",

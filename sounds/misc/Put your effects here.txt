@@ -1,0 +1,8 @@
+
+Please place your microphone sound effects in this folder.
+
+Expected filenames:
+1. mic_on.mp3 (or .wav)  - Played when recording starts.
+2. mic_off.mp3 (or .wav) - Played when recording stops (manually or via silence).
+
+Note: The application will look for .mp3 first, then fallback to .wav if not found.
